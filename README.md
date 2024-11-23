@@ -4,10 +4,8 @@ Tides is a messaging application built as Chrome extension that enables secure a
 
 <p align="center">
 <img src="https://github.com/user-attachments/assets/85527f53-7f04-4ff9-8e93-ef78ba71d737" width="300" />
-
 <img src="https://github.com/user-attachments/assets/d9b07c28-dcfb-4934-9a90-519612f1925c" width="300" />
-
-<img src="https://github.com/user-attachments/assets/e2f17e7f-e8aa-404a-9c3b-935d3735013c" width="300" />
+<img src="https://github.com/user-attachments/assets/7cde7eac-10d8-4181-8a15-0bbeef1b3ab2" width="300" />
 </p>
 
 
