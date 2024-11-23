@@ -1,0 +1,70 @@
+{
+  "name": "tides",
+  "version": "1.0.0",
+  "description": "A Nostr-based Messenger",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./auth": {
+      "import": "./dist/esm/auth.js",
+      "require": "./dist/cjs/auth.js"
+    },
+    "./background": {
+      "import": "./dist/esm/background.js",
+      "require": "./dist/cjs/background.js"
+    },
+    "./contact": {
+      "import": "./dist/esm/contact.js",
+      "require": "./dist/cjs/contact.js"
+    },
+    "./messages": {
+      "import": "./dist/esm/messages.js",
+      "require": "./dist/cjs/messages.js"
+    },
+    "./nip89": {
+      "import": "./dist/esm/nip89.js",
+      "require": "./dist/cjs/nip89.js"
+    },
+    "./popup": {
+      "import": "./dist/esm/popup.js",
+      "require": "./dist/cjs/popup.js"
+    },
+    "./shared": {
+      "import": "./dist/esm/shared.js",
+      "require": "./dist/cjs/shared.js"
+    },
+    "./userMetadata": {
+      "import": "./dist/esm/userMetadata.js",
+      "require": "./dist/cjs/userMetadata.js"
+    },
+    "./utils": {
+      "import": "./dist/esm/utils.js",
+      "require": "./dist/cjs/utils.js"
+    }
+  },
+  "scripts": {
+    "build": "rollup -c && cp src/icons/*.png dist/icons/",
+    "start": "echo \"Starting...\"",
+    "clean": "rm -rf dist"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "emoji-picker-element": "^1.23.0",
+    "nostr-tools": "^1.17.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.2",
+    "@rollup/plugin-node-resolve": "^15.1.0",
+    "@rollup/plugin-terser": "^0.4.3",
+    "@types/chrome": "^0.0.260",
+    "rollup": "^2.79.1",
+    "rollup-plugin-copy": "^3.4.0"
+  }
+}

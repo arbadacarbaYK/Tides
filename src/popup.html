@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tides</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="header">
+        <div id="userInfo">
+            <img src="/icons/default-avatar.png" alt="User avatar" id="userAvatar">
+            <span id="userDisplay"></span>
+            <span id="userNpub"></span>
+        </div>
+    </div>
+    <div id="mainContainer">
+        <div id="leftPanel">
+            <div class="search-container">
+                <input type="text" id="searchInput" placeholder="Search contacts...">
+                <button id="clearSearch">✕</button>
+            </div>
+            <div id="contactList"></div>
+        </div>
+        <div id="rightPanel">
+            <div id="chatHeader"></div>
+            <div id="chatContainer"></div>
+            <div class="message-input-container">
+                <textarea id="messageInput" placeholder="Type a message..."></textarea>
+                <div class="button-stack">
+                    <button class="gif-button" id="gifButton">GIF</button>
+                    <button class="emoji-button" id="emojiButton">😀</button>
+                    <button class="send-button" id="sendButton">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="22" y1="2" x2="11" y2="13"></line>
+                          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                      </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="loginScreen" style="display:none;">
+        <img src="icons/Logo.png" alt="Tides Logo">
+        <button id="extensionLoginButton">Login with Extension</button>
+        <div class="login-separator">or</div>
+        <input type="password" id="nsecInput" placeholder="Enter your nsec">
+        <button id="loginButton">Login with nsec</button>
+        <div id="errorMessage" style="color:red;display:none;"></div>
+    </div>
+    <div id="loadingIndicator" style="display:none;">
+        <div class="spinner-container">
+            <div class="spinner"></div>
+            <span>Loading...</span>
+        </div>
+    </div>
+    <script src="lib/nostr-tools.js"></script>
+    <script src="popup.js" type="module"></script>
+</body>
+</html>

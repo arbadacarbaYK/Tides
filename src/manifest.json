@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Tides",
+  "version": "1.0.0",
+  "description": "A Nostr-based Messenger",
+  "permissions": ["storage", "notifications"],
+  "background": {
+    "service_worker": "background-wrapper.js"
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["lib/nostr-tools.js"]
+  }],
+  "web_accessible_resources": [{
+    "resources": ["sounds/*", "icons/*", "lib/*"],
+    "matches": ["<all_urls>"]
+  }],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/Logo.png",
+      "48": "icons/Logo.png",
+      "128": "icons/Logo.png"
+    }
+  },
+  "icons": {
+    "16": "icons/Logo.png",
+    "48": "icons/Logo.png",
+    "128": "icons/Logo.png"
+  }
+}
