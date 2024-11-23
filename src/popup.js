@@ -835,7 +835,7 @@ function renderGifs(gifs, container) {
     const item = document.createElement('div');
     item.className = 'gif-item';
     item.style.position = 'relative';
-    item.style.paddingBottom = '75%';  // 4:3 aspect ratio
+    item.style.paddingBottom = '75%';
     
     const img = document.createElement('img');
     img.src = gif.previewUrl;
@@ -848,6 +848,21 @@ function renderGifs(gifs, container) {
     img.style.height = '100%';
     img.style.objectFit = 'cover';
     img.style.borderRadius = '8px';
+    
+    // Add click handler with cleaned URL
+    item.addEventListener('click', () => {
+      const messageInput = document.getElementById('messageInput');
+      // Clean the URL by removing query parameters
+      const cleanUrl = gif.url.split('?')[0];
+      messageInput.value = cleanUrl;
+      messageInput.focus();
+      
+      // Remove the GIF picker
+      const picker = document.querySelector('.gif-picker');
+      if (picker) {
+        picker.remove();
+      }
+    });
     
     item.appendChild(img);
     container.appendChild(item);

@@ -104,6 +104,16 @@ export class MessageManager {
         }
       } catch {}
   
+      // Check if content is a Giphy URL
+      if (decrypted.includes('giphy.com')) {
+        return {
+          type: 'media',
+          content: '',
+          mediaUrl: decrypted,
+          urls: [decrypted]
+        };
+      }
+  
       // Then check for media links
       const mediaMatch = decrypted.match(/https?:\/\/[^\s<]+[^<.,:;"')\]\s](?:\.(?:jpg|jpeg|gif|png|mp4|webm|mov|ogg))/i);
       const urlMatch = decrypted.match(/https?:\/\/[^\s<]+/g);
