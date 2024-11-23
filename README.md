@@ -2,6 +2,14 @@
 
 Tides is a messaging application built as Chrome extension that enables secure and private communication using the Nostr protocol.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/1dfdbba0-0f50-4e60-9af5-b0a1de4bde9b" width="300" />
+
+  <img src="https://github.com/user-attachments/assets/a2c8f657-f03a-4700-b37b-63cae46611e7" width="300" />
+  
+  <img src="https://github.com/user-attachments/assets/dbf42e08-fd94-4831-b35f-cdf728bc33c1" width="300" />
+</p>
+
 ## Features
 
 - Secure login via:
