@@ -1,2 +1,911 @@
-!function(e){"use strict";function t(e){return e&&"object"==typeof e&&"default"in e?e:{default:e}}var n=t(e);const o={nip19:e.nip19,getPublicKey:e.getPublicKey,getEventHash:e.getEventHash,signEvent:e.signEvent},a=new e.SimplePool,i=["wss://relay.damus.io","wss://relay.nostr.band","wss://nos.lol","wss://relay.snort.social","wss://nostr.wine"];function r(e){return e.slice(0,8)+"..."+e.slice(-4)}function s(e){return o.nip19.npubEncode(e)}const c=new class{constructor(){this.pool=a,this.connectedRelays=new Set}async ensureConnection(){if(this.connectedRelays.size>0)return!0;const e=i.map((async e=>{try{return await this.pool.ensureRelay(e),this.connectedRelays.add(e),console.log(`Connected to relay: ${e}`),!0}catch(t){return console.warn(`Failed to connect to relay: ${e}`,t),!1}}));return(await Promise.allSettled(e)).some((e=>"fulfilled"===e.status&&!0===e.value))}getConnectedRelays(){return Array.from(this.connectedRelays)}};const l=new class{constructor(){this.sounds=new Map([["login","sounds/login.mp3"],["message","sounds/message.mp3"]]),this.played=new Set,this.enabled=!0}async play(e,t=!1){if(!this.enabled||t&&this.played.has(e))return;const n=this.sounds.get(e);if(n)try{const o=new Audio(n);await o.play(),t&&this.played.add(e)}catch(t){console.error(`Error playing ${e} sound:`,t)}else console.error(`Unknown sound type: ${e}`)}reset(){this.played.clear()}enable(){this.enabled=!0}disable(){this.enabled=!1,this.reset()}};async function d(e){try{let t=await async function(e){const t=await chrome.storage.local.get([`metadata:${e}`]),n=t[`metadata:${e}`];if(n&&Date.now()-n.timestamp<36e5)return n;return null}(e);return t||(t=await async function(e){try{await c.ensureConnection();const t={kinds:[0],authors:[e],limit:1},n=c.getConnectedRelays(),o=await a.list(n,[t]);if(o.length>0){const e=JSON.parse(o[0].content);return console.log("Fetched metadata:",e),function(e){if("object"!=typeof e||null===e)return null;const t=["name","displayName","picture","about","nip05","lud16","banner","website"],n={};for(const[o,a]of Object.entries(e))t.includes(o)&&"string"==typeof a&&(n[o]=a);if(0===Object.keys(n).length)return null;return n}(e)}return console.log("No metadata found for:",e),null}catch(t){return console.error("Error fetching metadata:",t),{name:r(s(e)),picture:"icons/default-avatar.png"}}}(e),t&&await u(e,t)),console.log("Got metadata for",e,":",t),t}catch(t){return console.error("Error getting metadata:",t),{name:r(s(e)),picture:"icons/default-avatar.png"}}}async function u(e,t){return chrome.storage.local.set({[`metadata:${e}`]:{...t,timestamp:Date.now()}})}const m=new class{constructor(){this.currentUser=null}async init(){const e=await async function(){return new Promise(((e,t)=>{chrome.storage.local.get(["credentials"],(n=>{chrome.runtime.lastError?t(chrome.runtime.lastError):e(n.credentials||null)}))}))}();return e?(this.currentUser=e,e):null}async login(e,t){try{let n;if("NIP-07"===e)n=await this.loginWithNIP07();else{if("NSEC"!==e)throw new Error("Invalid login method");n=await this.loginWithNSEC(t)}return n&&await this.storeCredentials(n),n}catch(e){throw console.error("Login failed:",e),e}}async loginWithNIP07(){if(!window.nostr)throw new Error("NIP-07 extension not found");const e=await window.nostr.getPublicKey(),t=o.nip19.npubEncode(e);return{type:"NIP-07",pubkey:e.toLowerCase(),npub:t,displayId:r(t)}}async loginWithNSEC(e){try{const{type:t,data:n}=o.nip19.decode(e);if("nsec"!==t)throw new Error("Invalid nsec format");const a=o.getPublicKey(n),i=o.nip19.npubEncode(a);return console.log("Login pubkey:",a),{type:"NSEC",pubkey:a,privkey:n,npub:i,displayId:r(i)}}catch(e){throw console.error("NSEC login failed:",e),e}}async storeCredentials(e){if(!e?.pubkey)throw new Error("Invalid credentials format");return this.currentUser=e,await chrome.storage.local.set({currentUser:e,[`credentials:${e.pubkey}`]:e}),e}async getStoredCredentials(){try{const{currentUser:e}=await chrome.storage.local.get("currentUser");return e||null}catch(e){return console.error("Failed to get stored credentials:",e),null}}async getCurrentUser(){return this.currentUser?this.currentUser:await this.getStoredCredentials()}async getPublicKey(){return this.currentUser?this.currentUser.pubkey:null}async initializeUserData(e){try{const t=await getUserMetadata(e);return t&&await u(e,t),t}catch(e){throw console.error("Failed to initialize user data:",e),e}}async getPrivateKey(){const e=await this.getCurrentUser();return e?"NIP-07"===e.type?window.nostr:"NSEC"===e.type&&e.privkey?e.privkey:null:null}};const p=new class{constructor(){this.contacts=new Map,this.channels=new Map,this.subscriptions=new Map}async init(e){const t=await h(e);return this.contacts=new Map(t.map((e=>[e.pubkey,e]))),Array.from(this.contacts.values())}updateStatus(e,t){const n=this.contacts.get(e);n&&(n.isOnline=t,this.notifyUpdate(n))}notifyUpdate(e){chrome.runtime.sendMessage({type:"CONTACT_UPDATED",data:e})}async addChannel(e){const t={...e,isChannel:!0,avatarUrl:e.picture||"/icons/default-channel.png",displayName:e.name||"Unnamed Channel",description:e.about||"",pubkey:e.id};return this.channels.set(t.pubkey,t),this.notifyUpdate(t),t}};async function h(e){const t={kinds:[3],authors:[e]};try{console.log("Fetching contacts for pubkey:",e),await c.ensureConnection();const n=c.getConnectedRelays();if(0===n.length)throw new Error("No relays connected");const i=await a.list(n,[t]);if(!i||0===i.length)return console.warn("No contact list found for pubkey:",e),[];const s=i[0];if(console.log("Found contact list event:",s),!s.tags)return console.error("Contact list has no tags"),[];const l=s.tags.filter((e=>"p"===e[0])).map((e=>e[1]));console.log("Found contact pubkeys:",l.length);const u=await Promise.all(l.map((async e=>{try{const t=await d(e);return{pubkey:e,npub:o.nip19.npubEncode(e),displayName:t?.name||r(o.nip19.npubEncode(e)),avatarUrl:t?.picture||"icons/default-avatar.png",isOnline:!1}}catch(t){return console.error(`Error processing contact ${e}:`,t),null}})));return u.filter(Boolean)}catch(e){return console.error("Error fetching contacts:",e),[]}}function g(e){return p.contacts.get(e)}const f=new class{constructor(){this.subscriptions=new Map,this.messageCache=new Map,this.pool=new n.default.SimplePool,this.currentChatPubkey=null}async fetchMessages(e){const t=await m.getCurrentUser();if(!t?.pubkey)throw new Error("User not authenticated");try{await c.ensureConnection();const n=c.getConnectedRelays(),o={kinds:[4],"#p":[t.pubkey.toLowerCase()],authors:[e.toLowerCase()]},a={kinds:[4],"#p":[e.toLowerCase()],authors:[t.pubkey.toLowerCase()]},i=await Promise.all([this.pool.list(n,[o]),this.pool.list(n,[a])]).then((([e,t])=>[...e,...t]));return(await Promise.all(i.filter(this.validateEvent).sort(((e,t)=>e.created_at-t.created_at)).map((async e=>{const t=await this.decryptMessage(e);return t?{...e,decrypted:t,timestamp:1e3*e.created_at}:null})))).filter(Boolean).filter(((e,t,n)=>t===n.findIndex((t=>t.id===e.id))))}catch(e){return console.error("Error fetching messages:",e),[]}}async decryptMessage(e){try{const t=await m.getCurrentUser(),o=await m.getPrivateKey();if(!o)throw new Error("No private key available");let a;const i=e.pubkey===t.pubkey;a=o===window.nostr?await window.nostr.nip04.decrypt(i?e.tags.find((e=>"p"===e[0]))?.[1]:e.pubkey,e.content):await n.default.nip04.decrypt(o,i?e.tags.find((e=>"p"===e[0]))?.[1]:e.pubkey,e.content);try{const e=JSON.parse(a);if(e.items&&e.shipping_id)return{type:"market-order",content:e}}catch{}const r=a.match(/https?:\/\/[^\s<]+[^<.,:;"')\]\s](?:\.(?:jpg|jpeg|gif|png|mp4|webm|mov|ogg))/i),s=a.match(/https?:\/\/[^\s<]+/g),c=a.replace(r?.[0]||"","").trim();return r?{type:"media",content:c||a,mediaUrl:r[0],urls:s?.filter((e=>e!==r[0]))||[]}:s?{type:"text",content:a,urls:s,needsPreview:!0}:{type:"text",content:a}}catch(e){return console.error("Failed to decrypt message:",e),null}}validateEvent(e){try{return e&&"object"==typeof e&&e.id&&e.pubkey&&e.created_at&&e.kind&&e.content}catch(e){return console.error("Event validation failed:",e),null}}async handleIncomingMessage(e){const t=await this.decryptMessage(e);t&&(chrome.runtime.sendMessage({type:"NEW_MESSAGE",data:{id:e.id,pubkey:e.pubkey,content:t,created_at:e.created_at}}),soundManager.play("message"))}cleanup(){this.subscriptions.forEach((e=>e.unsub())),this.subscriptions.clear(),this.messageCache.clear()}async sendMessage(e,t){const o=await m.getCurrentUser();if(!o?.pubkey)throw new Error("User not authenticated");const a=`${o.pubkey}-${e}-${t}-${Date.now()}`;if(this.messageCache.has(a))return this.messageCache.get(a);try{let i;if("NIP-07"===o.type&&window.nostr?.nip04?.encrypt)i=await window.nostr.nip04.encrypt(e,t);else{if("NSEC"!==o.type||!o.privkey)throw new Error(`Unsupported login type: ${o.type}`);i=await n.default.nip04.encrypt(o.privkey,e,t)}const r={kind:4,pubkey:o.pubkey,created_at:Math.floor(Date.now()/1e3),tags:[["p",e]],content:i};r.id=n.default.getEventHash(r),"NIP-07"===o.type?r.sig=await window.nostr.signEvent(r):r.sig=n.default.signEvent(r,o.privkey);const s={...r,decrypted:t,timestamp:1e3*r.created_at};this.messageCache.set(a,s);const l=c.getConnectedRelays();return await Promise.race([this.pool.publish(l,r),new Promise(((e,t)=>setTimeout((()=>t(new Error("Publish timeout"))),5e3)))]),setTimeout((()=>this.messageCache.delete(a)),1e4),s}catch(e){throw this.messageCache.delete(a),e}}};function y(e){if("string"!=typeof e||!e)throw new Error("expected a non-empty string, got: "+e)}function b(e){if("number"!=typeof e)throw new Error("expected a number, got: "+e)}f.sendMessage.bind(f),f.handleIncomingMessage.bind(f),f.fetchMessages.bind(f);const v="emoji",w="keyvalue",k="favorites",E="tokens",j="count",C="group-order",S="eTag",T="url",x="skinTone",$="readonly",I="readwrite",L="skinUnicodes";function N(e){return function(e,t){const n=new Set,o=[];for(const a of e){const e=t(a);n.has(e)||(n.add(e),o.push(a))}return o}(e,(e=>e.unicode))}const M={},_={},P={};function B(e,t,n){n.onerror=()=>t(n.error),n.onblocked=()=>t(new Error("IDB blocked")),n.onsuccess=()=>e(n.result)}async function U(e){const t=await new Promise(((t,n)=>{const o=indexedDB.open(e,1);M[e]=o,o.onupgradeneeded=e=>{e.oldVersion<1&&function(e){function t(t,n,o){const a=n?e.createObjectStore(t,{keyPath:n}):e.createObjectStore(t);if(o)for(const[e,[t,n]]of Object.entries(o))a.createIndex(e,t,{multiEntry:n});return a}t(w),t(v,"unicode",{[E]:["tokens",!0],[C]:[["group","order"]],[L]:["skinUnicodes",!0]}),t(k,void 0,{[j]:[""]})}(o.result)},B(t,n,o)}));return t.onclose=()=>A(e),t}function z(e,t,n,o){return new Promise(((a,i)=>{const r=e.transaction(t,n,{durability:"relaxed"}),s="string"==typeof t?r.objectStore(t):t.map((e=>r.objectStore(e)));let c;o(s,r,(e=>{c=e})),r.oncomplete=()=>a(c),r.onerror=()=>i(r.error)}))}function A(e){const t=M[e],n=t&&t.result;if(n){n.close();const t=P[e];if(t)for(const e of t)e()}delete M[e],delete _[e],delete P[e]}const O=new Set([":D","XD",":'D","O:)",":X",":P",";P","XP",":L",":Z",":j","8D","XO","8)",":B",":O",":S",":'o","Dx","X(","D:",":C",">0)",":3","</3","<3","\\M/",":E","8#"]);function F(e){return e.split(/[\s_]+/).map((e=>!e.match(/\w/)||O.has(e)?e.toLowerCase():e.replace(/[)(:,]/g,"").replace(/’/g,"'").toLowerCase())).filter(Boolean)}function D(e){return e.filter(Boolean).map((e=>e.toLowerCase())).filter((e=>e.length>=2))}function R(e,t,n,o){e[t](n).onsuccess=e=>o&&o(e.target.result)}function H(e,t,n){R(e,"get",t,n)}function W(e,t,n){R(e,"getAll",t,n)}function q(e){e.commit&&e.commit()}function G(e,t){const n=function(e,t){let n=e[0];for(let o=1;o<e.length;o++){const a=e[o];t(n)>t(a)&&(n=a)}return n}(e,(e=>e.length)),o=[];for(const a of n)e.some((e=>-1===e.findIndex((e=>t(e)===t(a)))))||o.push(a);return o}async function K(e,t,n,o){try{const a=function(e){return e.map((({annotation:e,emoticon:t,group:n,order:o,shortcodes:a,skins:i,tags:r,emoji:s,version:c})=>{const l={annotation:e,group:n,order:o,tags:r,tokens:[...new Set(D([...(a||[]).map(F).flat(),...(r||[]).map(F).flat(),...F(e),t]))].sort(),unicode:s,version:c};if(t&&(l.emoticon=t),a&&(l.shortcodes=a),i){l.skinTones=[],l.skinUnicodes=[],l.skinVersions=[];for(const{tone:e,emoji:t,version:n}of i)l.skinTones.push(e),l.skinUnicodes.push(t),l.skinVersions.push(n)}return l}))}(t);await z(e,[v,w],I,(([e,t],i)=>{let r,s,c=0;function l(){2==++c&&function(){if(r===o&&s===n)return;e.clear();for(const t of a)e.put(t);t.put(o,S),t.put(n,T),q(i)}()}H(t,S,(e=>{r=e,l()})),H(t,T,(e=>{s=e,l()}))}))}finally{}}async function V(e,t){const n=D(F(t));return n.length?z(e,v,$,((e,t,o)=>{const a=[],i=()=>{const e=G(a,(e=>e.unicode));o(e.sort(((e,t)=>e.order<t.order?-1:1)))};for(let t=0;t<n.length;t++){const o=n[t],r=t===n.length-1?IDBKeyRange.bound(o,o+"￿",!1,!0):IDBKeyRange.only(o);W(e.index(E),r,(e=>{a.push(e),a.length===n.length&&i()}))}})):[]}async function X(e,t){const n=await V(e,t);if(!n.length){const n=e=>(e.shortcodes||[]).includes(t.toLowerCase());return await async function(e,t){return z(e,v,$,((e,n,o)=>{let a;const i=()=>{e.getAll(a&&IDBKeyRange.lowerBound(a,!0),50).onsuccess=e=>{const n=e.target.result;for(const e of n)if(a=e.unicode,t(e))return o(e);if(n.length<50)return o();i()}};i()}))}(e,n)||null}return n.filter((e=>{const n=(e.shortcodes||[]).map((e=>e.toLowerCase()));return n.includes(t.toLowerCase())}))[0]||null}function J(e,t,n){return z(e,t,$,((e,t,o)=>H(e,n,o)))}const Z=["name","url"];function Y(e){!function(e){const t=e&&Array.isArray(e),n=t&&e.length&&(!e[0]||Z.some((t=>!(t in e[0]))));if(!t||n)throw new Error("Custom emojis are in the wrong format")}(e);const t=(e,t)=>e.name.toLowerCase()<t.name.toLowerCase()?-1:1,n=e.sort(t),o=function(e,t){const n=new Map;for(const o of e){const e=t(o);for(const t of e){let e=n;for(let n=0;n<t.length;n++){const o=t.charAt(n);let a=e.get(o);a||(a=new Map,e.set(o,a)),e=a}let a=e.get("");a||(a=[],e.set("",a)),a.push(o)}}return(e,t)=>{let o=n;for(let t=0;t<e.length;t++){const n=e.charAt(t),a=o.get(n);if(!a)return[];o=a}if(t)return o.get("")||[];const a=[],i=[o];for(;i.length;){const e=[...i.shift().entries()].sort(((e,t)=>e[0]<t[0]?-1:1));for(const[t,n]of e)""===t?a.push(...n):i.push(n)}return a}}(e,(e=>{const t=new Set;if(e.shortcodes)for(const n of e.shortcodes)for(const e of F(n))t.add(e);return t})),a=e=>o(e,!0),i=e=>o(e,!1),r=new Map,s=new Map;for(const t of e){s.set(t.name.toLowerCase(),t);for(const e of t.shortcodes||[])r.set(e.toLowerCase(),t)}return{all:n,search:e=>{const n=F(e);return G(n.map(((e,t)=>(t<n.length-1?a:i)(e))),(e=>e.name)).sort(t)},byShortcode:e=>r.get(e.toLowerCase()),byName:e=>s.get(e.toLowerCase())}}const Q="undefined"!=typeof wrappedJSObject;function ee(e){if(!e)return e;if(Q&&(e=structuredClone(e)),delete e.tokens,e.skinTones){const t=e.skinTones.length;e.skins=Array(t);for(let n=0;n<t;n++)e.skins[n]={tone:e.skinTones[n],unicode:e.skinUnicodes[n],version:e.skinVersions[n]};delete e.skinTones,delete e.skinUnicodes,delete e.skinVersions}return e}function te(e){e||console.warn("emoji-picker-element is more efficient if the dataSource server exposes an ETag header.")}const ne=["annotation","emoji","group","order","version"];function oe(e,t){if(2!==Math.floor(e.status/100))throw new Error("Failed to fetch: "+t+":  "+e.status)}async function ae(e){const t=await fetch(e);oe(t,e);const n=t.headers.get("etag");te(n);const o=await t.json();return function(e){if(!e||!Array.isArray(e)||!e[0]||"object"!=typeof e[0]||ne.some((t=>!(t in e[0]))))throw new Error("Emoji data is in the wrong format")}(o),[n,o]}async function ie(e){let t=function(e){for(var t=e.length,n=new ArrayBuffer(t),o=new Uint8Array(n),a=-1;++a<t;)o[a]=e.charCodeAt(a);return n}(JSON.stringify(e));const n=function(e){for(var t="",n=new Uint8Array(e),o=n.byteLength,a=-1;++a<o;)t+=String.fromCharCode(n[a]);return t}(await crypto.subtle.digest("SHA-1",t));return btoa(n)}async function re(e,t){let n,o=await async function(e){const t=await fetch(e,{method:"HEAD"});oe(t,e);const n=t.headers.get("etag");return te(n),n}(t);if(!o){const e=await ae(t);o=e[0],n=e[1],o||(o=await ie(n))}if(await async function(e,t,n){const[o,a]=await Promise.all([S,T].map((t=>J(e,w,t))));return o===n&&a===t}(e,t,o));else{if(!n){n=(await ae(t))[1]}await K(e,n,t,o)}}class se{constructor({dataSource:e="https://cdn.jsdelivr.net/npm/emoji-picker-element-data@^1/en/emojibase/data.json",locale:t="en",customEmoji:n=[]}={}){this.dataSource=e,this.locale=t,this._dbName=`emoji-picker-element-${this.locale}`,this._db=void 0,this._lazyUpdate=void 0,this._custom=Y(n),this._clear=this._clear.bind(this),this._ready=this._init()}async _init(){const e=this._db=await(t=this._dbName,_[t]||(_[t]=U(t)),_[t]);var t;!function(e,t){let n=P[e];n||(n=P[e]=[]),n.push(t)}(this._dbName,this._clear);const n=this.dataSource,o=await async function(e){return!await J(e,w,T)}(e);o?await async function(e,t){let[n,o]=await ae(t);n||(n=await ie(o)),await K(e,o,t,n)}(e,n):this._lazyUpdate=re(e,n)}async ready(){const e=async()=>(this._ready||(this._ready=this._init()),this._ready);await e(),this._db||await e()}async getEmojiByGroup(e){return b(e),await this.ready(),N(await async function(e,t){return z(e,v,$,((e,n,o)=>{const a=IDBKeyRange.bound([t,0],[t+1,0],!1,!0);W(e.index(C),a,o)}))}(this._db,e)).map(ee)}async getEmojiBySearchQuery(e){y(e),await this.ready();return[...this._custom.search(e),...N(await V(this._db,e)).map(ee)]}async getEmojiByShortcode(e){y(e),await this.ready();const t=this._custom.byShortcode(e);return t||ee(await X(this._db,e))}async getEmojiByUnicodeOrName(e){y(e),await this.ready();const t=this._custom.byName(e);return t||ee(await async function(e,t){return z(e,v,$,((e,n,o)=>H(e,t,(n=>{if(n)return o(n);H(e.index(L),t,(e=>o(e||null)))}))))}(this._db,e))}async getPreferredSkinTone(){return await this.ready(),await J(this._db,w,x)||0}async setPreferredSkinTone(e){return b(e),await this.ready(),t=this._db,n=x,o=e,z(t,w,I,((e,t)=>{e.put(o,n),q(t)}));var t,n,o}async incrementFavoriteEmojiCount(e){return y(e),await this.ready(),t=this._db,n=e,z(t,k,I,((e,t)=>H(e,n,(o=>{e.put((o||0)+1,n),q(t)}))));var t,n}async getTopFavoriteEmoji(e){return b(e),await this.ready(),(await function(e,t,n){return 0===n?[]:z(e,[k,v],$,(([e,o],a,i)=>{const r=[];e.index(j).openCursor(void 0,"prev").onsuccess=e=>{const a=e.target.result;if(!a)return i(r);function s(e){if(r.push(e),r.length===n)return i(r);a.continue()}const c=a.primaryKey,l=t.byName(c);if(l)return s(l);H(o,c,(e=>{if(e)return s(e);a.continue()}))}}))}(this._db,this._custom,e)).map(ee)}set customEmoji(e){this._custom=Y(e)}get customEmoji(){return this._custom.all}async _shutdown(){await this.ready();try{await this._lazyUpdate}catch(e){}}_clear(){this._db=this._ready=this._lazyUpdate=void 0}async close(){await this._shutdown(),await A(this._dbName)}async delete(){var e;await this._shutdown(),await(e=this._dbName,new Promise(((t,n)=>{A(e),B(t,n,indexedDB.deleteDatabase(e))})))}}const ce=[[-1,"✨","custom"],[0,"😀","smileys-emotion"],[1,"👋","people-body"],[3,"🐱","animals-nature"],[4,"🍎","food-drink"],[5,"🏠️","travel-places"],[6,"⚽","activities"],[7,"📝","objects"],[8,"⛔️","symbols"],[9,"🏁","flags"]].map((([e,t,n])=>({id:e,emoji:t,name:n}))),le=ce.slice(1),de="function"==typeof requestIdleCallback?requestIdleCallback:setTimeout;function ue(e){return e.unicode.includes("‍")}const me={"🫨":15.1,"🫠":14,"🥲":13.1,"🥻":12.1,"🥰":11,"🤩":5,"👱‍♀️":4,"🤣":3,"👁️‍🗨️":2,"😀":1,"😐️":.7,"😃":.6},pe=["😊","😒","❤️","👍️","😍","😂","😭","☺️","😔","😩","😏","💕","🙌","😘"],he='"Twemoji Mozilla","Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji","EmojiOne Color","Android Emoji",sans-serif',ge=(e,t)=>e<t?-1:e>t?1:0,fe=(e,t)=>{const n=document.createElement("canvas");n.width=n.height=1;const o=n.getContext("2d",{willReadFrequently:!0});return o.textBaseline="top",o.font=`100px ${he}`,o.fillStyle=t,o.scale(.01,.01),o.fillText(e,0,0),o.getImageData(0,0,1,1).data};function ye(e){const t=fe(e,"#000"),n=fe(e,"#fff");return t&&n&&((e,t)=>{const n=[...e].join(",");return n===[...t].join(",")&&!n.startsWith("0,0,0,")})(t,n)}let be;const ve=()=>(be||(be=new Promise((e=>de((()=>e(function(){const e=Object.entries(me);try{for(const[t,n]of e)if(ye(t))return n}catch(e){}return e[0][1]}())))))),be),we=new Map;function ke(e){e.preventDefault(),e.stopPropagation()}function Ee(e,t,n){return(t+=e?-1:1)<0?t=n.length-1:t>=n.length&&(t=0),t}function je(e,t){const n=new Set,o=[];for(const a of e){const e=t(a);n.has(e)||(n.add(e),o.push(a))}return o}const Ce=requestAnimationFrame;let Se,Te="function"==typeof ResizeObserver;function xe(e){{const t=document.createRange();return t.selectNode(e.firstChild),t.getBoundingClientRect().width}}function $e(e,t,n){let o=e.get(t);return o||(o=n(),e.set(t,o)),o}function Ie(e){return""+e}const Le=new WeakMap,Ne=new WeakMap,Me=Symbol("un-keyed"),_e="replaceChildren"in Element.prototype;function Pe(e,t){const{targetNode:n}=t;let{targetParentNode:o}=t,a=!1;o?a=function(e,t){let n=e.firstChild,o=0;for(;n;){if(t[o]!==n)return!0;n=n.nextSibling,o++}return o!==t.length}(o,e):(a=!0,t.targetNode=void 0,t.targetParentNode=o=n.parentNode),a&&function(e,t){_e?e.replaceChildren(...t):(e.innerHTML="",e.append(...t))}(o,e)}function Be(e){let t="",n=!1,o=!1,a=-1;const i=new Map,r=[];for(let s=0,c=e.length;s<c;s++){const l=e[s];if(t+=l,s===c-1)break;for(let e=0;e<l.length;e++){switch(l.charAt(e)){case"<":"/"===l.charAt(e+1)?r.pop():(n=!0,r.push(++a));break;case">":n=!1,o=!1;break;case"=":o=!0}}const d=$e(i,r[r.length-1],(()=>[]));let u,m,p;if(o){const t=/(\S+)="?([^"=]*)$/.exec(l);u=t[1],m=t[2],p=/^[^">]*/.exec(e[s+1])[0]}const h={attributeName:u,attributeValuePre:m,attributeValuePost:p,expressionIndex:s};d.push(h),n||o||(t+=" ")}const s=function(e){const t=document.createElement("template");return t.innerHTML=e,t}(t);return{template:s,elementsToBindings:i}}function Ue(e,t,n){for(let o=0;o<e.length;o++){const a=e[o],i={binding:a,targetNode:a.attributeName?t:t.firstChild,targetParentNode:void 0,currentExpression:void 0};n.push(i)}}function ze(e){const{template:t,elementsToBindings:n}=$e(Le,e,(()=>Be(e))),o=t.cloneNode(!0).content.firstElementChild,a=function(e,t){const n=[];let o;if(1===t.size&&(o=t.get(0)))Ue(o,e,n);else{const o=document.createTreeWalker(e,NodeFilter.SHOW_ELEMENT);let a=e,i=-1;do{const e=t.get(++i);e&&Ue(e,a,n)}while(a=o.nextNode())}return n}(o,n);return function(e){return function(e,t){for(const n of t){const{targetNode:t,currentExpression:o,binding:{expressionIndex:a,attributeName:i,attributeValuePre:r,attributeValuePost:s}}=n,c=e[a];if(o!==c)if(n.currentExpression=c,i)t.setAttribute(i,r+Ie(c)+s);else{let e;Array.isArray(c)?Pe(c,n):c instanceof Element?(e=c,t.replaceWith(e)):t.nodeValue=Ie(c),e&&(n.targetNode=e)}}}(e,a),o}}function Ae(e,t,n,o,a,i,r,s,c){const{labelWithSkin:l,titleForEmoji:d,unicodeWithSkin:u}=n,{html:m,map:p}=function(e){const t=$e(Ne,e,(()=>new Map));let n=Me;return{map:function(e,t,o){return e.map(((e,a)=>{const i=n;n=o(e);try{return t(e,a)}finally{n=i}}))},html:function(e,...o){const a=$e(t,e,(()=>new Map));return $e(a,n,(()=>ze(e)))(o)}}}(t);function h(e,n,o){return p(e,((e,a)=>m`<button role="${n?"option":"menuitem"}" aria-selected="${n?a===t.activeSearchItem:""}" aria-label="${l(e,t.currentSkinTone)}" title="${d(e)}" class="${"emoji"+(n&&a===t.activeSearchItem?" active":"")+(e.unicode?"":" custom-emoji")}" id="${`${o}-${e.id}`}" style="${e.unicode?"":`--custom-emoji-background: url(${JSON.stringify(e.url)})`}">${e.unicode?u(e,t.currentSkinTone):""}</button>`),(e=>`${o}-${e.id}`))}const g=m`<section data-ref="rootElement" class="picker" aria-label="${t.i18n.regionLabel}" style="${t.pickerStyle||""}"><div class="pad-top"></div><div class="search-row"><div class="search-wrapper"><input id="search" class="search" type="search" role="combobox" enterkeyhint="search" placeholder="${t.i18n.searchLabel}" autocapitalize="none" autocomplete="off" spellcheck="true" aria-expanded="${!(!t.searchMode||!t.currentEmojis.length)}" aria-controls="search-results" aria-describedby="search-description" aria-autocomplete="list" aria-activedescendant="${t.activeSearchItemId?`emo-${t.activeSearchItemId}`:""}" data-ref="searchElement" data-on-input="onSearchInput" data-on-keydown="onSearchKeydown"><label class="sr-only" for="search">${t.i18n.searchLabel}</label> <span id="search-description" class="sr-only">${t.i18n.searchDescription}</span></div><div class="skintone-button-wrapper ${t.skinTonePickerExpandedAfterAnimation?"expanded":""}"><button id="skintone-button" class="emoji ${t.skinTonePickerExpanded?"hide-focus":""}" aria-label="${t.skinToneButtonLabel}" title="${t.skinToneButtonLabel}" aria-describedby="skintone-description" aria-haspopup="listbox" aria-expanded="${t.skinTonePickerExpanded}" aria-controls="skintone-list" data-on-click="onClickSkinToneButton">${t.skinToneButtonText||""}</button></div><span id="skintone-description" class="sr-only">${t.i18n.skinToneDescription}</span><div data-ref="skinToneDropdown" id="skintone-list" class="skintone-list hide-focus ${t.skinTonePickerExpanded?"":"hidden no-animate"}" style="transform:translateY(${t.skinTonePickerExpanded?0:"calc(-1 * var(--num-skintones) * var(--total-emoji-size))"})" role="listbox" aria-label="${t.i18n.skinTonesLabel}" aria-activedescendant="skintone-${t.activeSkinTone}" aria-hidden="${!t.skinTonePickerExpanded}" tabIndex="-1" data-on-focusout="onSkinToneOptionsFocusOut" data-on-click="onSkinToneOptionsClick" data-on-keydown="onSkinToneOptionsKeydown" data-on-keyup="onSkinToneOptionsKeyup">${p(t.skinTones,((e,n)=>m`<div id="skintone-${n}" class="emoji ${n===t.activeSkinTone?"active":""}" aria-selected="${n===t.activeSkinTone}" role="option" title="${t.i18n.skinTones[n]}" aria-label="${t.i18n.skinTones[n]}">${e}</div>`),(e=>e))}</div></div><div class="nav" role="tablist" style="grid-template-columns:repeat(${t.groups.length},1fr)" aria-label="${t.i18n.categoriesLabel}" data-on-keydown="onNavKeydown" data-on-click="onNavClick">${p(t.groups,(e=>m`<button role="tab" class="nav-button" aria-controls="tab-${e.id}" aria-label="${t.i18n.categories[e.name]}" aria-selected="${!t.searchMode&&t.currentGroup.id===e.id}" title="${t.i18n.categories[e.name]}" data-group-id="${e.id}"><div class="nav-emoji emoji">${e.emoji}</div></button>`),(e=>e.id))}</div><div class="indicator-wrapper"><div class="indicator" style="transform:translateX(${(t.isRtl?-1:1)*t.currentGroupIndex*100}%)"></div></div><div class="message ${t.message?"":"gone"}" role="alert" aria-live="polite">${t.message||""}</div><div data-ref="tabpanelElement" class="tabpanel ${!t.databaseLoaded||t.message?"gone":""}" role="${t.searchMode?"region":"tabpanel"}" aria-label="${t.searchMode?t.i18n.searchResultsLabel:t.i18n.categories[t.currentGroup.name]}" id="${t.searchMode?"":`tab-${t.currentGroup.id}`}" tabIndex="0" data-on-click="onEmojiClick"><div data-action="calculateEmojiGridStyle">${p(t.currentEmojisWithCategories,((e,n)=>m`<div><div id="menu-label-${n}" class="category ${1===t.currentEmojisWithCategories.length&&""===t.currentEmojisWithCategories[0].category?"gone":""}" aria-hidden="true">${t.searchMode?t.i18n.searchResultsLabel:e.category?e.category:t.currentEmojisWithCategories.length>1?t.i18n.categories.custom:t.i18n.categories[t.currentGroup.name]}</div><div class="emoji-menu ${0===n||t.searchMode||-1!==t.currentGroup.id?"":"visibility-auto"}" style="${`--num-rows: ${Math.ceil(e.emojis.length/t.numColumns)}`}" data-action="updateOnIntersection" role="${t.searchMode?"listbox":"menu"}" aria-labelledby="menu-label-${n}" id="${t.searchMode?"search-results":""}">${h(e.emojis,t.searchMode,"emo")}</div></div>`),(e=>e.category))}</div></div><div class="favorites onscreen emoji-menu ${t.message?"gone":""}" role="menu" aria-label="${t.i18n.favoritesLabel}" data-on-click="onEmojiClick">${h(t.currentFavorites,!1,"fav")}</div><button data-ref="baselineEmoji" aria-hidden="true" tabindex="-1" class="abs-pos hidden emoji baseline-emoji">😀</button></section>`,f=(t,n)=>{for(const o of e.querySelectorAll(`[${t}]`))n(o,o.getAttribute(t))};if(c){e.appendChild(g);for(const e of["click","focusout","input","keydown","keyup"])f(`data-on-${e}`,((t,n)=>{t.addEventListener(e,o[n])}));f("data-ref",((e,t)=>{i[t]=e})),r.addEventListener("abort",(()=>{e.removeChild(g)}))}f("data-action",((e,t)=>{let n=s.get(t);n||s.set(t,n=new WeakSet),n.has(e)||(n.add(e),a[t](e))}))}const Oe="function"==typeof queueMicrotask?queueMicrotask:e=>Promise.resolve().then(e);function Fe(e,t,n){if(e.length!==t.length)return!1;for(let o=0;o<e.length;o++)if(!n(e[o],t[o]))return!1;return!0}const De=new WeakMap;const Re=[],{assign:He}=Object;function We(e,t){const n={},o=new AbortController,a=o.signal,{state:i,createEffect:r}=function(e){let t,n=!1;const o=new Map,a=new Set;let i;const r=()=>{if(n)return;const e=[...a];a.clear();try{for(const t of e)t()}finally{i=!1,a.size&&(i=!0,Oe(r))}},s=new Proxy({},{get(e,n){if(t){let e=o.get(n);e||(e=new Set,o.set(n,e)),e.add(t)}return e[n]},set(e,t,n){if(e[t]!==n){e[t]=n;const s=o.get(t);if(s){for(const e of s)a.add(e);i||(i=!0,Oe(r))}}return!0}});return e.addEventListener("abort",(()=>{n=!0})),{state:s,createEffect:e=>{const n=()=>{const o=t;t=n;try{return e()}finally{t=o}};return n()}}}(a),s=new Map;He(i,{skinToneEmoji:void 0,i18n:void 0,database:void 0,customEmoji:void 0,customCategorySorting:void 0,emojiVersion:void 0}),He(i,t),He(i,{initialLoad:!0,currentEmojis:[],currentEmojisWithCategories:[],rawSearchText:"",searchText:"",searchMode:!1,activeSearchItem:-1,message:void 0,skinTonePickerExpanded:!1,skinTonePickerExpandedAfterAnimation:!1,currentSkinTone:0,activeSkinTone:0,skinToneButtonText:void 0,pickerStyle:void 0,skinToneButtonLabel:"",skinTones:[],currentFavorites:[],defaultFavoriteEmojis:void 0,numColumns:8,isRtl:!1,currentGroupIndex:0,groups:le,databaseLoaded:!1,activeSearchItemId:void 0}),r((()=>{i.currentGroup!==i.groups[i.currentGroupIndex]&&(i.currentGroup=i.groups[i.currentGroupIndex])}));const c=t=>{e.getElementById(t).focus()},l=t=>e.getElementById(`emo-${t.id}`),d=(e,t)=>{n.rootElement.dispatchEvent(new CustomEvent(e,{detail:t,bubbles:!0,composed:!0}))},u=(e,t)=>e.id===t.id,m=(e,t)=>{const{category:n,emojis:o}=e,{category:a,emojis:i}=t;return n===a&&Fe(o,i,u)},p=e=>{Fe(i.currentEmojis,e,u)||(i.currentEmojis=e)},h=e=>{i.searchMode!==e&&(i.searchMode=e)},g=(e,t)=>t&&e.skins&&e.skins[t]||e.unicode,f={labelWithSkin:(e,t)=>{return(n=[e.name||g(e,t),e.annotation,...e.shortcodes||Re].filter(Boolean),je(n,(e=>e))).join(", ");var n},titleForEmoji:e=>e.annotation||(e.shortcodes||Re).join(", "),unicodeWithSkin:g},y={onClickSkinToneButton:function(e){i.skinTonePickerExpanded=!i.skinTonePickerExpanded,i.activeSkinTone=i.currentSkinTone,i.skinTonePickerExpanded&&(ke(e),Ce((()=>c("skintone-list"))))},onEmojiClick:async function(e){const{target:t}=e;if(!t.classList.contains("emoji"))return;ke(e);S(t.id.substring(4))},onNavClick:function(e){const{target:t}=e,o=t.closest(".nav-button");if(!o)return;const a=parseInt(o.dataset.groupId,10);n.searchElement.value="",i.rawSearchText="",i.searchText="",i.activeSearchItem=-1,i.currentGroupIndex=i.groups.findIndex((e=>e.id===a))},onNavKeydown:function(e){const{target:t,key:n}=e,o=t=>{t&&(ke(e),t.focus())};switch(n){case"ArrowLeft":return o(t.previousElementSibling);case"ArrowRight":return o(t.nextElementSibling);case"Home":return o(t.parentElement.firstElementChild);case"End":return o(t.parentElement.lastElementChild)}},onSearchKeydown:function(e){if(!i.searchMode||!i.currentEmojis.length)return;const t=t=>{ke(e),i.activeSearchItem=Ee(t,i.activeSearchItem,i.currentEmojis)};switch(e.key){case"ArrowDown":return t(!1);case"ArrowUp":return t(!0);case"Enter":if(-1!==i.activeSearchItem)return ke(e),S(i.currentEmojis[i.activeSearchItem].id);i.activeSearchItem=0}},onSkinToneOptionsClick:function(e){const{target:{id:t}}=e,n=t&&t.match(/^skintone-(\d)/);if(!n)return;ke(e);T(parseInt(n[1],10))},onSkinToneOptionsFocusOut:async function(e){const{relatedTarget:t}=e;t&&"skintone-list"===t.id||(i.skinTonePickerExpanded=!1)},onSkinToneOptionsKeydown:function(e){if(!i.skinTonePickerExpanded)return;const t=async t=>{ke(e),i.activeSkinTone=t};switch(e.key){case"ArrowUp":return t(Ee(!0,i.activeSkinTone,i.skinTones));case"ArrowDown":return t(Ee(!1,i.activeSkinTone,i.skinTones));case"Home":return t(0);case"End":return t(i.skinTones.length-1);case"Enter":return ke(e),T(i.activeSkinTone);case"Escape":return ke(e),i.skinTonePickerExpanded=!1,c("skintone-button")}},onSkinToneOptionsKeyup:function(e){if(!i.skinTonePickerExpanded)return;if(" "===e.key)return ke(e),T(i.activeSkinTone)},onSearchInput:function(e){i.rawSearchText=e.target.value}},b={calculateEmojiGridStyle:function(e){!function(e,t,n){let o;Te?(o=new ResizeObserver(n),o.observe(e)):Ce(n),t.addEventListener("abort",(()=>{o&&o.disconnect()}))}(e,a,(()=>{{const e=getComputedStyle(n.rootElement),t=parseInt(e.getPropertyValue("--num-columns"),10),o="rtl"===e.getPropertyValue("direction");i.numColumns=t,i.isRtl=o}}))},updateOnIntersection:function(e){!function(e,t,n){{const o=e.closest(".tabpanel");let a=De.get(o);a||(a=new IntersectionObserver(n,{root:o,rootMargin:"50% 0px 50% 0px",threshold:0}),De.set(o,a),t.addEventListener("abort",(()=>{a.disconnect()}))),a.observe(e)}}(e,a,(e=>{for(const{target:t,isIntersecting:n}of e)t.classList.toggle("onscreen",n)}))}};let v=!0;function w(){const{customEmoji:e,database:t}=i,n=e||Re;t.customEmoji!==n&&(t.customEmoji=n)}r((()=>{Ae(e,i,f,y,b,n,a,s,v),v=!1})),i.emojiVersion||ve().then((e=>{e||(i.message=i.i18n.emojiUnsupportedMessage)})),r((()=>{i.database&&async function(){let e=!1;const t=setTimeout((()=>{e=!0,i.message=i.i18n.loadingMessage}),1e3);try{await i.database.ready(),i.databaseLoaded=!0}catch(e){console.error(e),i.message=i.i18n.networkErrorMessage}finally{clearTimeout(t),e&&(e=!1,i.message="")}}()})),r((()=>{i.pickerStyle=`\n      --num-groups: ${i.groups.length}; \n      --indicator-opacity: ${i.searchMode?0:1}; \n      --num-skintones: 6;`})),r((()=>{i.customEmoji&&i.database&&w()})),r((()=>{i.customEmoji&&i.customEmoji.length?i.groups!==ce&&(i.groups=ce):i.groups!==le&&(i.currentGroupIndex&&i.currentGroupIndex--,i.groups=le)})),r((()=>{!async function(){i.databaseLoaded&&(i.currentSkinTone=await i.database.getPreferredSkinTone())}()})),r((()=>{i.skinTones=Array(6).fill().map(((e,t)=>function(e,t){if(0===t)return e;const n=e.indexOf("‍");return-1!==n?e.substring(0,n)+String.fromCodePoint(127995+t-1)+e.substring(n):(e.endsWith("️")&&(e=e.substring(0,e.length-1)),e+"\ud83c"+String.fromCodePoint(57339+t-1))}(i.skinToneEmoji,t)))})),r((()=>{i.skinToneButtonText=i.skinTones[i.currentSkinTone]})),r((()=>{i.skinToneButtonLabel=i.i18n.skinToneLabel.replace("{skinTone}",i.i18n.skinTones[i.currentSkinTone])})),r((()=>{i.databaseLoaded&&async function(){const{database:e}=i,t=(await Promise.all(pe.map((t=>e.getEmojiByUnicodeOrName(t))))).filter(Boolean);i.defaultFavoriteEmojis=t}()})),r((()=>{i.databaseLoaded&&i.defaultFavoriteEmojis&&async function(){w();const{database:e,defaultFavoriteEmojis:t,numColumns:n}=i,o=await e.getTopFavoriteEmoji(n),a=await C(je([...o,...t],(e=>e.unicode||e.name)).slice(0,n));i.currentFavorites=a}()})),r((()=>{!async function(){const{searchText:e,currentGroup:t,databaseLoaded:n,customEmoji:o}=i;if(n)if(e.length>=2){const t=await async function(e){return C(await j(await i.database.getEmojiBySearchQuery(e)))}(e);i.searchText===e&&(p(t),h(!0))}else{const{id:e}=t;if(-1!==e||o&&o.length){const t=await async function(e){const t=-1===e?i.customEmoji:await i.database.getEmojiByGroup(e);return C(await j(t))}(e);i.currentGroup.id===e&&(p(t),h(!1))}}else i.currentEmojis=[],i.searchMode=!1}()}));const k=()=>{Ce((()=>{var e;(e=n.tabpanelElement)&&(e.scrollTop=0)}))};function E(e){return!e.unicode||!ue(e)||we.get(e.unicode)}async function j(e){const t=i.emojiVersion||await ve();return e.filter((({version:e})=>!e||e<=t))}async function C(e){return function(e,t){const n=e=>{const n={};for(const o of e)"number"==typeof o.tone&&o.version<=t&&(n[o.tone]=o.unicode);return n};return e.map((({unicode:e,skins:t,shortcodes:o,url:a,name:i,category:r,annotation:s})=>({unicode:e,name:i,shortcodes:o,url:a,category:r,annotation:s,id:e||i,skins:t&&n(t)})))}(e,i.emojiVersion||await ve())}async function S(e){const t=await i.database.getEmojiByUnicodeOrName(e),n=[...i.currentEmojis,...i.currentFavorites].find((t=>t.id===e)),o=n.unicode&&g(n,i.currentSkinTone);await i.database.incrementFavoriteEmojiCount(e),d("emoji-click",{emoji:t,skinTone:i.currentSkinTone,...o&&{unicode:o},...n.name&&{name:n.name}})}function T(e){i.currentSkinTone=e,i.skinTonePickerExpanded=!1,c("skintone-button"),d("skin-tone-change",{skinTone:e}),i.database.setPreferredSkinTone(e)}return r((()=>{const{currentEmojis:e,emojiVersion:t}=i,o=e.filter((e=>e.unicode)).filter((e=>ue(e)&&!we.has(e.unicode)));if(!t&&o.length)p(e),Ce((()=>function(e){const t=function(e,t,n){let o=!0;for(const a of e){const e=xe(n(a));void 0===Se&&(Se=xe(t));const i=e/1.8<Se;we.set(a.unicode,i),i||(o=!1)}return o}(e,n.baselineEmoji,l);t?k():i.currentEmojis=[...i.currentEmojis]}(o)));else{const n=t?e:e.filter(E);p(n),k()}})),r((()=>{})),r((()=>{(e=>{Fe(i.currentEmojisWithCategories,e,m)||(i.currentEmojisWithCategories=e)})(function(){const{searchMode:e,currentEmojis:t}=i;if(e)return[{category:"",emojis:t}];const n=new Map;for(const e of t){const t=e.category||"";let o=n.get(t);o||(o=[],n.set(t,o)),o.push(e)}return[...n.entries()].map((([e,t])=>({category:e,emojis:t}))).sort(((e,t)=>i.customCategorySorting(e.category,t.category)))}())})),r((()=>{i.activeSearchItemId=-1!==i.activeSearchItem&&i.currentEmojis[i.activeSearchItem].id})),r((()=>{const{rawSearchText:e}=i;de((()=>{i.searchText=(e||"").trim(),i.activeSearchItem=-1}))})),r((()=>{i.skinTonePickerExpanded?n.skinToneDropdown.addEventListener("transitionend",(()=>{i.skinTonePickerExpandedAfterAnimation=!0}),{once:!0}):i.skinTonePickerExpandedAfterAnimation=!1})),{$set(e){He(i,e)},$destroy(){o.abort()}}}var qe={categoriesLabel:"Categories",emojiUnsupportedMessage:"Your browser does not support color emoji.",favoritesLabel:"Favorites",loadingMessage:"Loading…",networkErrorMessage:"Could not load emoji.",regionLabel:"Emoji picker",searchDescription:"When search results are available, press up or down to select and enter to choose.",searchLabel:"Search",searchResultsLabel:"Search results",skinToneDescription:"When expanded, press up or down to select and enter to choose.",skinToneLabel:"Choose a skin tone (currently {skinTone})",skinTonesLabel:"Skin tones",skinTones:["Default","Light","Medium-Light","Medium","Medium-Dark","Dark"],categories:{custom:"Custom","smileys-emotion":"Smileys and emoticons","people-body":"People and body","animals-nature":"Animals and nature","food-drink":"Food and drink","travel-places":"Travel and places",activities:"Activities",objects:"Objects",symbols:"Symbols",flags:"Flags"}};const Ge=["customEmoji","customCategorySorting","database","dataSource","i18n","locale","skinToneEmoji","emojiVersion"],Ke=`:host{--emoji-font-family:${he}}`;class Ve extends HTMLElement{constructor(e){super(),this.attachShadow({mode:"open"});const t=document.createElement("style");t.textContent=':host{--emoji-size:1.375rem;--emoji-padding:0.5rem;--category-emoji-size:var(--emoji-size);--category-emoji-padding:var(--emoji-padding);--indicator-height:3px;--input-border-radius:0.5rem;--input-border-size:1px;--input-font-size:1rem;--input-line-height:1.5;--input-padding:0.25rem;--num-columns:8;--outline-size:2px;--border-size:1px;--border-radius:0;--skintone-border-radius:1rem;--category-font-size:1rem;display:flex;width:min-content;height:400px}:host,:host(.light){color-scheme:light;--background:#fff;--border-color:#e0e0e0;--indicator-color:#385ac1;--input-border-color:#999;--input-font-color:#111;--input-placeholder-color:#999;--outline-color:#999;--category-font-color:#111;--button-active-background:#e6e6e6;--button-hover-background:#d9d9d9}:host(.dark){color-scheme:dark;--background:#222;--border-color:#444;--indicator-color:#5373ec;--input-border-color:#ccc;--input-font-color:#efefef;--input-placeholder-color:#ccc;--outline-color:#fff;--category-font-color:#efefef;--button-active-background:#555555;--button-hover-background:#484848}@media (prefers-color-scheme:dark){:host{color-scheme:dark;--background:#222;--border-color:#444;--indicator-color:#5373ec;--input-border-color:#ccc;--input-font-color:#efefef;--input-placeholder-color:#ccc;--outline-color:#fff;--category-font-color:#efefef;--button-active-background:#555555;--button-hover-background:#484848}}:host([hidden]){display:none}button{margin:0;padding:0;border:0;background:0 0;box-shadow:none;-webkit-tap-highlight-color:transparent}button::-moz-focus-inner{border:0}input{padding:0;margin:0;line-height:1.15;font-family:inherit}input[type=search]{-webkit-appearance:none}:focus{outline:var(--outline-color) solid var(--outline-size);outline-offset:calc(-1*var(--outline-size))}:host([data-js-focus-visible]) :focus:not([data-focus-visible-added]){outline:0}:focus:not(:focus-visible){outline:0}.hide-focus{outline:0}*{box-sizing:border-box}.picker{contain:content;display:flex;flex-direction:column;background:var(--background);border:var(--border-size) solid var(--border-color);border-radius:var(--border-radius);width:100%;height:100%;overflow:hidden;--total-emoji-size:calc(var(--emoji-size) + (2 * var(--emoji-padding)));--total-category-emoji-size:calc(var(--category-emoji-size) + (2 * var(--category-emoji-padding)))}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}.hidden{opacity:0;pointer-events:none}.abs-pos{position:absolute;left:0;top:0}.gone{display:none!important}.skintone-button-wrapper,.skintone-list{background:var(--background);z-index:3}.skintone-button-wrapper.expanded{z-index:1}.skintone-list{position:absolute;inset-inline-end:0;top:0;z-index:2;overflow:visible;border-bottom:var(--border-size) solid var(--border-color);border-radius:0 0 var(--skintone-border-radius) var(--skintone-border-radius);will-change:transform;transition:transform .2s ease-in-out;transform-origin:center 0}@media (prefers-reduced-motion:reduce){.skintone-list{transition-duration:.001s}}@supports not (inset-inline-end:0){.skintone-list{right:0}}.skintone-list.no-animate{transition:none}.tabpanel{overflow-y:auto;scrollbar-gutter:stable;-webkit-overflow-scrolling:touch;will-change:transform;min-height:0;flex:1;contain:content}.emoji-menu{display:grid;grid-template-columns:repeat(var(--num-columns),var(--total-emoji-size));justify-content:space-around;align-items:flex-start;width:100%}.emoji-menu.visibility-auto{content-visibility:auto;contain-intrinsic-size:calc(var(--num-columns)*var(--total-emoji-size)) calc(var(--num-rows)*var(--total-emoji-size))}.category{padding:var(--emoji-padding);font-size:var(--category-font-size);color:var(--category-font-color)}.emoji,button.emoji{font-size:var(--emoji-size);display:flex;align-items:center;justify-content:center;border-radius:100%;height:var(--total-emoji-size);width:var(--total-emoji-size);line-height:1;overflow:hidden;font-family:var(--emoji-font-family);cursor:pointer}@media (hover:hover) and (pointer:fine){.emoji:hover,button.emoji:hover{background:var(--button-hover-background)}}.emoji.active,.emoji:active,button.emoji.active,button.emoji:active{background:var(--button-active-background)}.onscreen .custom-emoji::after{content:"";width:var(--emoji-size);height:var(--emoji-size);background-repeat:no-repeat;background-position:center center;background-size:contain;background-image:var(--custom-emoji-background)}.nav,.nav-button{align-items:center}.nav{display:grid;justify-content:space-between;contain:content}.nav-button{display:flex;justify-content:center}.nav-emoji{font-size:var(--category-emoji-size);width:var(--total-category-emoji-size);height:var(--total-category-emoji-size)}.indicator-wrapper{display:flex;border-bottom:1px solid var(--border-color)}.indicator{width:calc(100%/var(--num-groups));height:var(--indicator-height);opacity:var(--indicator-opacity);background-color:var(--indicator-color);will-change:transform,opacity;transition:opacity .1s linear,transform .25s ease-in-out}@media (prefers-reduced-motion:reduce){.indicator{will-change:opacity;transition:opacity .1s linear}}.pad-top,input.search{background:var(--background);width:100%}.pad-top{height:var(--emoji-padding);z-index:3}.search-row{display:flex;align-items:center;position:relative;padding-inline-start:var(--emoji-padding);padding-bottom:var(--emoji-padding)}.search-wrapper{flex:1;min-width:0}input.search{padding:var(--input-padding);border-radius:var(--input-border-radius);border:var(--input-border-size) solid var(--input-border-color);color:var(--input-font-color);font-size:var(--input-font-size);line-height:var(--input-line-height)}input.search::placeholder{color:var(--input-placeholder-color)}.favorites{overflow-y:auto;scrollbar-gutter:stable;display:flex;flex-direction:row;border-top:var(--border-size) solid var(--border-color);contain:content}.message{padding:var(--emoji-padding)}'+Ke,this.shadowRoot.appendChild(t),this._ctx={locale:"en",dataSource:"https://cdn.jsdelivr.net/npm/emoji-picker-element-data@^1/en/emojibase/data.json",skinToneEmoji:"🖐️",customCategorySorting:ge,customEmoji:null,i18n:qe,emojiVersion:null,...e};for(const e of Ge)"database"!==e&&Object.prototype.hasOwnProperty.call(this,e)&&(this._ctx[e]=this[e],delete this[e]);this._dbFlush()}connectedCallback(){this._cmp||(this._cmp=We(this.shadowRoot,this._ctx))}disconnectedCallback(){Oe((()=>{if(!this.isConnected&&this._cmp){this._cmp.$destroy(),this._cmp=void 0;const{database:e}=this._ctx;e.close().catch((e=>console.error(e)))}}))}static get observedAttributes(){return["locale","data-source","skin-tone-emoji","emoji-version"]}attributeChangedCallback(e,t,n){this._set(e.replace(/-([a-z])/g,((e,t)=>t.toUpperCase())),"emoji-version"===e?parseFloat(n):n)}_set(e,t){this._ctx[e]=t,this._cmp&&this._cmp.$set({[e]:t}),["locale","dataSource"].includes(e)&&this._dbFlush()}_dbCreate(){const{locale:e,dataSource:t,database:n}=this._ctx;n&&n.locale===e&&n.dataSource===t||this._set("database",new se({locale:e,dataSource:t}))}_dbFlush(){Oe((()=>this._dbCreate()))}}const Xe={};for(const e of Ge)Xe[e]={get(){return"database"===e&&this._dbCreate(),this._ctx[e]},set(t){if("database"===e)throw new Error("database is read-only");this._set(e,t)}};Object.defineProperties(Ve.prototype,Xe),customElements.get("emoji-picker")||customElements.define("emoji-picker",Ve);const Je="2OFaf9yEsoNzXCJ9aNNKo9SVXc4YNXei",Ze="https://api.giphy.com/v1/gifs";async function Ye(e=20){const t=`${Ze}/trending?api_key=${Je}&limit=${e}`,n=await fetch(t);return(await n.json()).data.map((e=>({id:e.id,url:e.images.original.url,previewUrl:e.images.fixed_width.url,width:e.images.fixed_width.width,height:e.images.fixed_width.height})))}console.log("popup.js loaded");let Qe=null,et=!1,tt=0;function nt(){const e=document.getElementById("gifButton");if(!e)return;const t=e.cloneNode(!0);e.parentNode.replaceChild(t,e),t.addEventListener("click",(async()=>{console.log("GIF button clicked");const e=document.querySelector(".gif-picker");if(e)return void e.remove();const n=document.createElement("div");n.className="gif-picker";const o=document.createElement("div");o.className="gif-search";const a=document.createElement("input");a.type="text",a.placeholder="Search GIFs...",o.appendChild(a);const i=document.createElement("div");i.className="gif-grid",n.appendChild(o),n.appendChild(i),document.querySelector(".message-input-container").appendChild(n);try{dt(await Ye(),i)}catch(e){console.error("Failed to load trending GIFs:",e)}let r;a.addEventListener("input",(async e=>{clearTimeout(r),r=setTimeout((async()=>{const t=e.target.value.trim();try{if(t){const e=await async function(e,t=20){const n=`${Ze}/search?api_key=${Je}&q=${encodeURIComponent(e)}&limit=${t}`,o=await fetch(n);return(await o.json()).data.map((e=>({id:e.id,url:e.images.original.url,previewUrl:e.images.fixed_height.url,width:e.images.original.width,height:e.images.original.height})))}(t);dt(e,i)}else{dt(await Ye(),i)}}catch(e){console.error("GIF search failed:",e)}}),300)})),setTimeout((()=>{document.addEventListener("click",(function e(o){n.contains(o.target)||o.target===t||(n.remove(),document.removeEventListener("click",e))}))}),100)}))}async function ot(e){try{document.getElementById("loadingIndicator").style.display="block",await async function(e){const t=document.getElementById("loadingIndicator");try{t.style.display="block";const o=await h(e.pubkey);n=o,p.contacts=new Map(n.map((e=>[e.pubkey,e]))),it(o);const a=await d(e.pubkey);a&&function(e){console.log("Updating UI with metadata:",e);const t=document.getElementById("userDisplay"),n=document.getElementById("userNpub"),o=document.getElementById("userAvatar");t&&(t.textContent=e.name||e.displayName||"Anonymous");n&&(n.style.display="none");o&&(o.onerror=()=>{o.src="/icons/default-avatar.png"},o.src=e.picture||"/icons/default-avatar.png")}(a)}catch(e){throw console.error("Error loading user data:",e),at("Failed to load user data. Please try again."),e}finally{t.style.display="none"}var n}(e),document.getElementById("mainContainer").style.display="grid",document.getElementById("rightPanel").style.display="grid",document.getElementById("loginScreen").style.display="none",document.getElementById("userInfo").style.visibility="visible",et||(l.play("login"),et=!0)}catch(e){console.error("Login failed:",e),at("Login failed: "+e.message)}finally{document.getElementById("loadingIndicator").style.display="none"}}function at(e){const t=document.getElementById("errorMessage");if(!t){const e=document.createElement("div");e.id="errorMessage",e.className="error-message",document.body.appendChild(e)}t.textContent=e,t.style.display="block",setTimeout((()=>{t.style.display="none"}),3e3)}function it(e){const t=document.getElementById("contactList");t.innerHTML="";const n=document.createElement("div");n.className="contact-section";const o=document.createElement("div");o.className="section-header",o.dataset.section="streams",o.innerHTML='<h3>Streams</h3><span class="collapse-icon">▼</span>';const a=document.createElement("div");a.className="section-content",a.id="streamsContent";if([{pubkey:"npub1ua6fxn9ktc4jncanf79jzvklgjftcdrt5etverwzzg0lgpmg3hsq2gh6v6",displayName:"Noderunners Radio",isChannel:!0,avatarUrl:"https://image.nostr.build/9a9c9e5dba5ed17361f2f593dda02bd2ba85a14e69db1f251b27423f43864efe.webp",streamUrl:"https://zap.stream/noderunnersradio"}].forEach((e=>{const t=rt(e);e.streamUrl&&(t.dataset.streamUrl=e.streamUrl),a.appendChild(t)})),n.appendChild(o),n.appendChild(a),t.appendChild(n),e&&e.length>0){const n=document.createElement("div");n.className="contact-section";const o=document.createElement("div");o.className="section-header",o.dataset.section="contacts",o.innerHTML='<h3>Contacts</h3><span class="collapse-icon">▼</span>';const a=document.createElement("div");a.className="section-content",a.id="contactsContent",e.forEach((e=>{const t=rt(e);a.appendChild(t)})),n.appendChild(o),n.appendChild(a),t.appendChild(n)}}function rt(e){const t=document.createElement("div");t.className="contact-item",t.dataset.pubkey=e.pubkey,Qe===e.pubkey&&t.classList.add("selected");const n=e.avatarUrl||(e.isChannel?"/icons/default-channel.png":"/icons/default-avatar.png"),o=document.createElement("img");o.src=n,o.alt=e.displayName,o.className="contact-avatar";const a=document.createElement("div");a.className="contact-info";const i=document.createElement("span");if(i.className="contact-name",i.textContent=e.displayName,a.appendChild(i),!e.isChannel){const t=document.createElement("div");t.className="online-indicator "+(e.isOnline?"online":""),a.appendChild(t)}return t.appendChild(o),t.appendChild(a),t.addEventListener("click",(async()=>{e.isChannel?(t.classList.add("selected"),await st(e.pubkey)):(document.querySelectorAll(".contact-item").forEach((e=>{e.dataset.streamUrl||e.classList.remove("selected")})),t.classList.add("selected"),await st(e.pubkey))})),t}async function st(e){document.getElementById("rightPanel");const t=document.getElementById("chatContainer");document.querySelector(".message-input-container");const n=document.getElementById("messageInput"),o=document.getElementById("sendButton"),a=document.getElementById("emojiButton"),i=document.getElementById("gifButton"),s=document.getElementById("chatHeader");if(e){Qe=e;try{const c=document.querySelector(`[data-pubkey="${e}"][data-stream-url]`);if(c)return s.innerHTML=`\n        <img src="/icons/stream-icon.png" alt="${c.querySelector(".contact-name").textContent}" class="contact-avatar">\n        <span>${c.querySelector(".contact-name").textContent}</span>\n      `,t.innerHTML=`\n        <div class="video-container">\n          <iframe \n            src="${c.dataset.streamUrl}"\n            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"\n            allowfullscreen>\n          </iframe>\n        </div>\n      `,n.disabled=!0,o.disabled=!0,a.disabled=!0,void(i.disabled=!0);const l=g(e);if(!l)return;s.innerHTML=`\n      <img src="${l.avatarUrl||"/icons/default-avatar.png"}" \n           alt="${l.displayName}" \n           class="contact-avatar">\n      <span>${l.displayName||r(e)}</span>\n    `,n.disabled=!1,o.disabled=!1,a.disabled=!1,i.disabled=!1,nt();!async function(e){const t=document.getElementById("chatContainer");if(!e?.length)return void(t.innerHTML='<div class="no-messages">No messages yet</div>');const n=await m.getCurrentUser(),o=document.createElement("div");o.className="message-list",e.sort(((e,t)=>e.timestamp-t.timestamp)).forEach((e=>{if(!e.decrypted)return;const t=document.createElement("div"),a=e.pubkey===n?.pubkey;t.className="message "+(a?"sent":"received");const i=document.createElement("div");i.className="message-bubble",async function(e,t){await m.getCurrentUser();const n=e.decrypted;if("object"==typeof n&&n.type)switch(n.type){case"market-order":t.innerHTML=`\n          <div class="market-order">\n            <div class="order-header">Order #${n.content.shipping_id}</div>\n            <div class="order-items">\n              ${n.content.items.map((e=>`<div class="order-item">\n                  <span class="quantity">${e.quantity}x</span>\n                  <span class="name">${e.name}</span>\n                  <span class="price">${e.price}</span>\n                </div>`)).join("")}\n            </div>\n            ${n.content.message?`<div class="order-message">${n.content.message}</div>`:""}\n          </div>`;break;case"media":const e=n.mediaUrl?.match(/\.(mp4|webm|mov|ogg)$/i);t.innerHTML=`\n          <div class="media-container">\n            ${e?`<video src="${n.mediaUrl}" controls class="message-media"></video>`:`<img src="${n.mediaUrl}" class="message-media" loading="lazy">`}\n            ${n.content?`<div class="message-text">${lt(n.content)}</div>`:""}\n          </div>`;break;default:t.innerHTML=`<div class="message-text">${lt(n.content)}</div>`}else t.innerHTML=`<div class="message-text">${lt(n)}</div>`}(e,i),t.appendChild(i),o.appendChild(t)})),t.innerHTML="",t.appendChild(o),async function(){const e=document.querySelectorAll(".message-text a");for(const t of e)try{const e=t.href;if(t.nextElementSibling?.classList.contains("link-preview")||e.match(/\.(jpg|jpeg|gif|png|mp4|webm|mov|ogg)$/i))continue;const n=document.createElement("div");n.className="link-preview";const o=document.createElement("div");o.className="link-preview-content";try{const t=await fetch(e),n=await t.text(),a=(new DOMParser).parseFromString(n,"text/html"),i=a.querySelector('meta[property="og:title"]')?.content||a.querySelector("title")?.textContent||new URL(e).hostname,r=a.querySelector('meta[property="og:description"]')?.content||a.querySelector('meta[name="description"]')?.content||"",s=a.querySelector('meta[property="og:image"]')?.content;o.innerHTML=`\n          ${s?`<img src="${s}" alt="${i}" loading="lazy">`:""}\n          <div class="preview-title">${i}</div>\n          ${r?`<div class="preview-description">${r}</div>`:""}\n        `}catch(t){console.warn("Failed to fetch preview:",t),o.innerHTML=`\n          <div class="preview-title">${new URL(e).hostname}</div>\n        `}n.appendChild(o),t.parentNode.insertBefore(n,t.nextSibling)}catch(e){console.warn("Failed to create preview:",e)}}(),t.scrollTop=t.scrollHeight}(await f.fetchMessages(e)),function(e,t,n){e.addEventListener("keypress",(async e=>{"Enter"!==e.key||e.shiftKey||(e.preventDefault(),await ct())})),t.addEventListener("click",ct),function(e,t){if(!e||!t)return;const n=e.cloneNode(!0);e.parentNode.replaceChild(n,e),n.addEventListener("click",(e=>{e.preventDefault(),e.stopPropagation();let o=document.querySelector("emoji-picker");if(o)return void o.remove();const a=document.createElement("emoji-picker");a.style.position="absolute",a.style.bottom="60px",a.style.right="0",a.style.zIndex="1000";document.querySelector(".message-input-container").appendChild(a),a.addEventListener("emoji-click",(e=>{t.value+=e.detail.unicode,t.focus(),a.remove()})),setTimeout((()=>{document.addEventListener("click",(function e(t){a.contains(t.target)||t.target===n||(a.remove(),document.removeEventListener("click",e))}))}),100)}))}(n,e)}(n,o,a)}catch(e){console.error("Failed to initialize chat:",e),at("Failed to load chat")}}else resetChatUI()}async function ct(){const e=document.getElementById("messageInput"),t=e.value.trim();if(t&&Qe)try{e.value="";const n=document.querySelector(".message-list");if(!n)return;await m.getCurrentUser();const o=document.createElement("div");o.className="message sent";const a=document.createElement("div");a.className="message-bubble",t.match(/\.(gif|jpe?g|png)$/i)?a.innerHTML=`\n        <div class="media-container">\n          <img src="${t}" class="message-media" loading="lazy">\n        </div>`:a.innerHTML=`<div class="message-text">${lt(t)}</div>`,o.appendChild(a),n.appendChild(o),o.scrollIntoView({behavior:"smooth"}),await f.sendMessage(Qe,t)}catch(e){console.error("Failed to send message:",e),at("Failed to send message")}}function lt(e){return e.replace(/\n/g,"<br>").replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|[a-zA-Z0-9][a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g,(e=>{if(e.match(/\.(jpg|jpeg|gif|png|mpwebm|mov|ogg)$/i))return"";return`<a href="${e.startsWith("http")?e:`https://${e}`}" target="_blank" rel="noopener">${e.replace(/^https?:\/\//,"")}</a>`}))}function dt(e,t){t.innerHTML="",e.forEach((e=>{const n=document.createElement("div");n.className="gif-item";const o=document.createElement("img");o.src=e.previewUrl,o.loading="lazy",n.appendChild(o),n.addEventListener("click",(()=>{const n=document.getElementById("messageInput"),o=e.url.split("&ct=g")[0];n.value+=` ${o} `,n.focus(),t.closest(".gif-picker").remove()})),t.appendChild(n)}))}document.addEventListener("DOMContentLoaded",(async()=>{!function(){const e=document.getElementById("loginScreen"),t=document.getElementById("mainContainer"),n=document.getElementById("nsecInput"),o=document.getElementById("loginButton");e.style.display="block",t.style.display="none",n.style.display="none";const a=document.getElementById("searchInput"),i=document.getElementById("clearSearch");a.value="",i.style.display="none",a.addEventListener("input",(e=>{const t=e.target.value.toLowerCase().trim();i.style.display=t?"block":"none",it(Array.from(p.contacts.values()).filter((e=>{if(!t)return!0;const n=(e.displayName||"").toLowerCase(),o=(e.npub||"").toLowerCase();return n.includes(t)||o.includes(t)})))})),n.addEventListener("keypress",(e=>{"Enter"===e.key&&o.click()}))}();const e=await m.getStoredCredentials();if(e)await ot(e);else{if(window.nostr)try{const e=await m.login("NIP-07");if(e)return void await ot(e)}catch(e){console.debug("NIP-07 not available:",e)}document.getElementById("nsecInput").style.display="block",function(){const e=document.getElementById("loginScreen"),t=document.getElementById("mainContainer");e.style.display="flex",t.style.display="none",document.getElementById("userInfo").style.visibility="hidden"}(),"granted"!==Notification.permission&&Notification.requestPermission()}})),document.getElementById("loginButton").addEventListener("click",(async()=>{const e=document.getElementById("nsecInput").value.trim();try{if(!e)return void at("Please enter your nsec key");const t=await m.login("NSEC",e);if(!t)return void at("Login failed - invalid credentials");await ot(t)}catch(e){console.error("Login error:",e),at(e.message)}})),chrome.runtime.onMessage.addListener((e=>{switch(e.type){case"NEW_MESSAGE":!function(e){const t=g(e.pubkey);new Notification(t?.displayName||r(e.pubkey),{body:e.content,icon:t?.avatarUrl||"icons/default-avatar.png"}),e.timestamp>tt&&(l.play("message"),tt=e.timestamp)}(e.data);break;case"CONTACT_UPDATED":!function(e){const t=document.querySelector(`[data-pubkey="${e.pubkey}"]`);if(t){const n=rt(e);t.replaceWith(n)}}(e.data);break;case"INIT_COMPLETE":console.log("Initialization complete");break;case"INIT_ERROR":at(e.error)}return!0})),document.getElementById("clearSearch").addEventListener("click",(()=>{document.getElementById("searchInput").value="",it(Array.from(p.contacts.values()))})),document.getElementById("extensionLoginButton").addEventListener("click",(async()=>{try{if(!window.nostr)return void at("No Nostr extension found.");const e=await m.login("NIP-07");e&&await ot(e)}catch(e){console.error("Extension login error:",e),at("Extension login failed: "+e.message)}}))}(NostrTools);
-//# sourceMappingURL=popup.js.map
+console.log('popup.js loaded');
+
+import { auth } from './auth.js';
+import { fetchContacts, setContacts, contactManager, getContact } from './contact.js';
+import { pubkeyToNpub } from './shared.js';
+import { getUserMetadata, getDisplayName, getAvatarUrl, storeMetadata } from './userMetadata.js';
+import { messageManager } from './messages.js';
+import { publishAppHandlerEvent } from './nip89.js';
+import { toLowerCaseHex } from './utils.js';
+import { soundManager } from './utils.js';
+import { shortenIdentifier } from './shared.js';
+import 'emoji-picker-element';
+import { searchGifs, getTrendingGifs } from './services/giphy.js';
+
+let currentChatPubkey = null;
+let emojiButtonListener;
+let emojiPickerListener;
+let hasPlayedLoginSound = false;
+let lastMessageTimestamp = 0;
+
+function initializeGifButton() {
+  const gifButton = document.getElementById('gifButton');
+  if (!gifButton) return;
+
+  // Remove existing listeners
+  const newGifButton = gifButton.cloneNode(true);
+  gifButton.parentNode.replaceChild(newGifButton, gifButton);
+
+  newGifButton.addEventListener('click', async () => {
+    console.log('GIF button clicked');
+    const existingPicker = document.querySelector('.gif-picker');
+    if (existingPicker) {
+      existingPicker.remove();
+      return;
+    }
+
+    const picker = document.createElement('div');
+    picker.className = 'gif-picker';
+
+    const searchContainer = document.createElement('div');
+    searchContainer.className = 'gif-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search GIFs...';
+    searchContainer.appendChild(searchInput);
+
+    const gifGrid = document.createElement('div');
+    gifGrid.className = 'gif-grid';
+
+    picker.appendChild(searchContainer);
+    picker.appendChild(gifGrid);
+    document.querySelector('.message-input-container').appendChild(picker);
+
+    try {
+      const trending = await getTrendingGifs();
+      renderGifs(trending, gifGrid);
+    } catch (error) {
+      console.error('Failed to load trending GIFs:', error);
+    }
+
+    let searchTimeout;
+    searchInput.addEventListener('input', async (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(async () => {
+        const query = e.target.value.trim();
+        try {
+          if (query) {
+            const results = await searchGifs(query);
+            renderGifs(results, gifGrid);
+          } else {
+            const trending = await getTrendingGifs();
+            renderGifs(trending, gifGrid);
+          }
+        } catch (error) {
+          console.error('GIF search failed:', error);
+        }
+      }, 300);
+    });
+
+    // Close picker when clicking outside
+    setTimeout(() => {
+      document.addEventListener('click', function closePickerHandler(e) {
+        if (!picker.contains(e.target) && e.target !== newGifButton) {
+          picker.remove();
+          document.removeEventListener('click', closePickerHandler);
+        }
+      });
+    }, 100);
+  });
+}
+
+function showLoginScreen() {
+  const loginScreen = document.getElementById('loginScreen');
+  const mainContainer = document.getElementById('mainContainer');
+  
+  loginScreen.style.display = 'flex';
+  mainContainer.style.display = 'none';
+  
+  // Keep header visible but hide user info
+  document.getElementById('userInfo').style.visibility = 'hidden';
+}
+
+function initializeUI() {
+  const loginScreen = document.getElementById('loginScreen');
+  const mainContainer = document.getElementById('mainContainer');
+  const nsecInput = document.getElementById('nsecInput');
+  const loginButton = document.getElementById('loginButton');
+  
+  loginScreen.style.display = 'block';
+  mainContainer.style.display = 'none';
+  nsecInput.style.display = 'none';
+  
+  // Initialize search functionality
+  const searchInput = document.getElementById('searchInput');
+  const clearSearchButton = document.getElementById('clearSearch');
+  
+  searchInput.value = '';
+  clearSearchButton.style.display = 'none';
+  
+  searchInput.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase().trim();
+    
+    // Handle clear button visibility
+    clearSearchButton.style.display = searchTerm ? 'block' : 'none';
+    
+    // Handle contact filtering
+    const filteredContacts = Array.from(contactManager.contacts.values())
+      .filter(contact => {
+        if (!searchTerm) return true;
+        const displayName = (contact.displayName || '').toLowerCase();
+        const npub = (contact.npub || '').toLowerCase();
+        return displayName.includes(searchTerm) || npub.includes(searchTerm);
+      });
+      
+    renderContactList(filteredContacts);
+  });
+
+  // Add Enter key listener for login
+  nsecInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      loginButton.click();
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initializeUI();
+  const storedUser = await auth.getStoredCredentials();
+  if (storedUser) {
+    await handleSuccessfulLogin(storedUser); 
+    return;
+  }
+
+  if (window.nostr) {
+    try {
+      const user = await auth.login('NIP-07');
+      if (user) {
+        await handleSuccessfulLogin(user);
+        return;
+      }
+    } catch (e) {
+      console.debug("NIP-07 not available:", e);
+    }
+  }
+
+  document.getElementById('nsecInput').style.display = 'block';
+  showLoginScreen();
+
+  if (Notification.permission !== 'granted') {
+    Notification.requestPermission();
+  }
+});
+
+async function handleSuccessfulLogin(user) {
+  try {
+    document.getElementById('loadingIndicator').style.display = 'block';
+    await loadUserData(user);
+    
+    document.getElementById('mainContainer').style.display = 'grid';
+    document.getElementById('rightPanel').style.display = 'grid';
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('userInfo').style.visibility = 'visible';
+    
+    if (!hasPlayedLoginSound) {
+      soundManager.play('login');
+      hasPlayedLoginSound = true;
+    }
+    
+  } catch (error) {
+    console.error('Login failed:', error);
+    showErrorMessage('Login failed: ' + error.message);
+  } finally {
+    document.getElementById('loadingIndicator').style.display = 'none';
+  }
+}
+
+function playLoginSound() {
+  soundManager.play('login', true);
+}
+
+document.getElementById('loginButton').addEventListener('click', async () => {
+  const nsecInput = document.getElementById('nsecInput').value.trim();
+  
+  try {
+    if (!nsecInput) {
+      showErrorMessage('Please enter your nsec key');
+      return;
+    }
+
+    const user = await auth.login('NSEC', nsecInput);
+    if (!user) {
+      showErrorMessage('Login failed - invalid credentials');
+      return;
+    }
+
+    await handleSuccessfulLogin(user);
+
+  } catch (error) {
+    console.error('Login error:', error);
+    showErrorMessage(error.message);
+  }
+});
+
+async function loadUserData(user) {
+  const loadingIndicator = document.getElementById('loadingIndicator');
+  try {
+    loadingIndicator.style.display = 'block';
+    
+    // Only fetch contacts - channels will come through contact events
+    const contacts = await fetchContacts(user.pubkey);
+    setContacts(contacts);
+    renderContactList(contacts);
+
+    const metadata = await getUserMetadata(user.pubkey);
+    if (metadata) {
+      updateUIWithMetadata(metadata);
+    }
+  } catch (error) {
+    console.error('Error loading user data:', error);
+    showErrorMessage('Failed to load user data. Please try again.');
+    throw error;
+  } finally {
+    loadingIndicator.style.display = 'none';
+  }
+}
+
+function showMainScreen() {
+  document.body.classList.remove('login-screen');
+  document.body.classList.add('main-screen');
+}
+
+function showErrorMessage(message) {
+  const errorDiv = document.getElementById('errorMessage');
+  if (!errorDiv) {
+    const div = document.createElement('div');
+    div.id = 'errorMessage';
+    div.className = 'error-message';
+    document.body.appendChild(div);
+  }
+  errorDiv.textContent = message;
+  errorDiv.style.display = 'block';
+  setTimeout(() => {
+    errorDiv.style.display = 'none';
+  }, 3000);
+}
+
+function handleNewMessage(message) {
+  const contact = getContact(message.pubkey);
+  const notification = new Notification(
+    contact?.displayName || shortenIdentifier(message.pubkey), 
+    { 
+      body: message.content,
+      icon: contact?.avatarUrl || 'icons/default-avatar.png'
+    }
+  );
+
+  // Check if the message is new
+  if (message.timestamp > lastMessageTimestamp) {
+    soundManager.play('message');
+    lastMessageTimestamp = message.timestamp;
+  }
+}
+
+function updateUIWithMetadata(metadata) {
+  console.log('Updating UI with metadata:', metadata);
+  const userDisplay = document.getElementById('userDisplay');
+  const userNpub = document.getElementById('userNpub');
+  const avatar = document.getElementById('userAvatar');
+  
+  if (userDisplay) {
+    userDisplay.textContent = metadata.name || metadata.displayName || 'Anonymous';
+  }
+  if (userNpub) {
+    userNpub.style.display = 'none';
+  }
+  if (avatar) {
+    avatar.onerror = () => {
+      avatar.src = '/icons/default-avatar.png';
+    };
+    avatar.src = metadata.picture || '/icons/default-avatar.png';
+  }
+}
+
+async function renderContactList(contacts) {
+  const contactList = document.getElementById('contactList');
+  contactList.innerHTML = '';
+  
+  // Create streams section
+  const streamSection = document.createElement('div');
+  streamSection.className = 'contact-section';
+  
+  const streamHeader = document.createElement('div');
+  streamHeader.className = 'section-header';
+  streamHeader.dataset.section = 'streams';
+  streamHeader.innerHTML = '<h3>Streams</h3><span class="collapse-icon">▼</span>';
+  
+  const streamContent = document.createElement('div');
+  streamContent.className = 'section-content';
+  streamContent.id = 'streamsContent';
+  
+  // Add hardcoded stream
+  const streamData = await initializeStreamSection();
+  const streamElement = createContactElement(streamData);
+  streamContent.appendChild(streamElement);
+  
+  streamSection.appendChild(streamHeader);
+  streamSection.appendChild(streamContent);
+  contactList.appendChild(streamSection);
+
+  // Rest of the contacts section remains the same
+  if (contacts && contacts.length > 0) {
+    const contactSection = document.createElement('div');
+    contactSection.className = 'contact-section';
+    
+    const contactHeader = document.createElement('div');
+    contactHeader.className = 'section-header';
+    contactHeader.dataset.section = 'contacts';
+    contactHeader.innerHTML = '<h3>Contacts</h3><span class="collapse-icon">▼</span>';
+    
+    const contactContent = document.createElement('div');
+    contactContent.className = 'section-content';
+    contactContent.id = 'contactsContent';
+    
+    contacts.forEach(contact => {
+      const contactElement = createContactElement(contact);
+      contactContent.appendChild(contactElement);
+    });
+    
+    contactSection.appendChild(contactHeader);
+    contactSection.appendChild(contactContent);
+    contactList.appendChild(contactSection);
+  }
+}
+
+function createContactElement(contact) {
+  const element = document.createElement('div');
+  element.className = 'contact-item';
+  element.dataset.pubkey = contact.pubkey;
+  if (contact.streamUrl) {
+    element.dataset.streamUrl = contact.streamUrl;
+  }
+  
+  if (currentChatPubkey === contact.pubkey) {
+    element.classList.add('selected');
+  }
+  
+  const avatarSrc = contact.avatarUrl || (contact.isChannel ? '/icons/default-channel.png' : '/icons/default-avatar.png');
+  
+  // Create elements directly instead of using innerHTML
+  const img = document.createElement('img');
+  img.src = avatarSrc;
+  img.alt = contact.displayName;
+  img.className = 'contact-avatar';
+
+  const contactInfo = document.createElement('div');
+  contactInfo.className = 'contact-info';
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'contact-name';
+  nameSpan.textContent = contact.displayName;
+  contactInfo.appendChild(nameSpan);
+
+  if (!contact.isChannel) {
+    const indicator = document.createElement('div');
+    indicator.className = `online-indicator ${contact.isOnline ? 'online' : ''}`;
+    contactInfo.appendChild(indicator);
+  }
+
+  element.appendChild(img);
+  element.appendChild(contactInfo);
+  
+  // Add click handler
+  element.addEventListener('click', async () => {
+    if (contact.isChannel) {
+      // For streams/channels, allow selection and initialize stream
+      element.classList.add('selected');
+      await initializeChat(contact.pubkey);
+    } else {
+      // For regular contacts, don't remove stream selection
+      document.querySelectorAll('.contact-item').forEach(el => {
+        if (!el.dataset.streamUrl) {
+          el.classList.remove('selected');
+        }
+      });
+      element.classList.add('selected');
+      await initializeChat(contact.pubkey);
+    }
+  });
+  
+  return element;
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  switch (message.type) {
+    case 'NEW_MESSAGE':
+      handleNewMessage(message.data);
+      break;
+    case 'CONTACT_UPDATED':
+      updateContactInList(message.data);
+      break;
+    case 'INIT_COMPLETE':
+      console.log('Initialization complete');
+      break;
+    case 'INIT_ERROR':
+      showErrorMessage(message.error);
+      break;
+  }
+  return true;
+});
+
+async function selectContact(pubkey) {
+  await initializeChat(pubkey);
+}
+
+async function initializeChat(pubkey) {
+  const chatHeader = document.getElementById('chatHeader');
+  const chatContainer = document.getElementById('chatContainer');
+  const messageInputContainer = document.querySelector('.message-input-container');
+  
+  if (!pubkey) {
+    resetChatUI();
+    return;
+  }
+
+  currentChatPubkey = pubkey;
+  
+  try {
+    const streamElement = document.querySelector(`[data-pubkey="${pubkey}"][data-stream-url]`);
+    if (streamElement) {
+      handleStreamChat(pubkey, chatHeader, chatContainer);
+      messageInputContainer.style.display = 'none';
+      return;
+    }
+
+    // Regular contact chat
+    messageInputContainer.style.display = 'flex';
+    const contact = getContact(pubkey);
+    if (!contact) return;
+
+    updateChatHeader(chatHeader, contact);
+    
+    // Clear existing messages first
+    chatContainer.innerHTML = '<div class="message-list"></div>';
+    
+    // Fetch and render messages
+    const messages = await messageManager.fetchMessages(pubkey);
+    if (messages && messages.length > 0) {
+      renderMessages(messages);
+    } else {
+      chatContainer.querySelector('.message-list').innerHTML = '<div class="no-messages">No messages yet</div>';
+    }
+
+  } catch (error) {
+    console.error('Failed to initialize chat:', error);
+    showErrorMessage('Failed to load chat');
+  }
+}
+
+function resetChatUI() {
+  const chatHeader = document.getElementById('chatHeader');
+  const chatContainer = document.getElementById('chatContainer');
+  const messageInput = document.getElementById('messageInput');
+  const sendButton = document.getElementById('sendButton');
+  const emojiButton = document.getElementById('emojiButton');
+  const gifButton = document.getElementById('gifButton');
+
+  chatHeader.innerHTML = '';
+  chatContainer.innerHTML = '<div class="no-chat-selected">Select a contact to start chatting</div>';
+  messageInput.value = '';
+  messageInput.disabled = true;
+  sendButton.disabled = true;
+  emojiButton.disabled = true;
+  gifButton.disabled = true;
+}
+
+function renderMessages(messages) {
+  const messageList = document.querySelector('.message-list');
+  if (!messageList) return;
+  
+  messageList.innerHTML = '';
+  
+  messages
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .forEach(async message => {
+      if (!message.decrypted) return;
+      
+      const messageElement = document.createElement('div');
+      const currentUser = await auth.getCurrentUser();
+      const isSent = message.pubkey === currentUser?.pubkey;
+      messageElement.className = `message ${isSent ? 'sent' : 'received'}`;
+      
+      const bubbleElement = document.createElement('div');
+      bubbleElement.className = 'message-bubble';
+      
+      await renderMessageContent(message, bubbleElement);
+      messageElement.appendChild(bubbleElement);
+      messageList.appendChild(messageElement);
+    });
+
+  // Scroll to bottom after rendering
+  const chatContainer = document.getElementById('chatContainer');
+  if (chatContainer) {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+}
+
+// Setup message input handlers
+messageInput.addEventListener('keypress', async (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    await sendMessage();
+  }
+});
+
+sendButton.addEventListener('click', sendMessage);
+    
+emojiButtonListener = () => {
+  // Remove any existing picker
+  const existingPicker = document.querySelector('emoji-picker');
+  if (existingPicker) {
+    existingPicker.remove();
+    return; // Toggle behavior - if picker exists, just remove it
+  }
+
+  const picker = document.createElement('emoji-picker');
+  picker.classList.add('emoji-picker');
+  
+  if (emojiPickerListener) {
+    picker.removeEventListener('emoji-click', emojiPickerListener);
+  }
+  
+  emojiPickerListener = (event) => {
+    messageInput.value += event.detail.unicode;
+    picker.remove();
+  };
+  
+  picker.addEventListener('emoji-click', emojiPickerListener);
+  
+  // Position the picker above the input area
+  const inputContainer = document.querySelector('.message-input-container');
+  inputContainer.appendChild(picker);
+  
+  // Ensure picker is visible within viewport
+  const pickerRect = picker.getBoundingClientRect();
+  const viewportHeight = window.innerHeight;
+  
+  if (pickerRect.top < 0) {
+    // If picker would go above viewport, position it below the input instead
+    picker.style.bottom = 'auto';
+    picker.style.top = '100%';
+    picker.style.marginTop = '8px';
+    picker.style.marginBottom = '0';
+  }
+  
+  // Handle clicks outside the picker
+  const handleOutsideClick = (e) => {
+    if (!picker.contains(e.target) && e.target !== emojiButton) {
+      picker.remove();
+      document.removeEventListener('click', handleOutsideClick);
+    }
+  };
+  
+  // Add slight delay to prevent immediate closure
+  setTimeout(() => {
+    document.addEventListener('click', handleOutsideClick);
+  }, 100);
+};
+
+emojiButton.addEventListener('click', emojiButtonListener);
+
+// Add GIF button functionality (placeholder)
+gifButton.addEventListener('click', () => {
+  alert('GIF functionality coming soon!');
+});
+
+async function handleStreamChat(pubkey, header, container) {
+  const channel = contactManager.channels.get(pubkey);
+  if (!channel) return;
+
+  header.innerHTML = `
+    <img src="${channel.avatarUrl}" alt="${channel.displayName}" class="contact-avatar">
+    <span>${channel.displayName}</span>
+  `;
+
+  container.innerHTML = `
+    <div class="video-container">
+      <iframe 
+        src="https://zap.stream/${channel.streamUrl}"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen
+        style="width: 100%; height: 100%; border: none;">
+      </iframe>
+    </div>
+  `;
+}
+
+function updateChatHeader(header, contact) {
+  header.innerHTML = `
+    <img src="${contact.avatarUrl || (contact.isChannel ? '/icons/default-channel.png' : '/icons/default-avatar.png')}" 
+         alt="${contact.displayName}" 
+         class="contact-avatar">
+    <span>${contact.displayName}</span>
+    ${contact.isChannel && contact.about ? `<div class="channel-description">${contact.about}</div>` : ''}
+  `;
+}
+
+function initializeMessageHandlers(messageInput, sendButton, emojiButton) {
+  messageInput.addEventListener('keypress', async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      await sendMessage();
+    }
+  });
+
+  sendButton.addEventListener('click', sendMessage);
+  initializeEmojiPicker(emojiButton, messageInput);
+}
+
+async function sendMessage() {
+  const messageInput = document.getElementById('messageInput');
+  const content = messageInput.value.trim();
+  
+  if (!content || !currentChatPubkey) return;
+  
+  try {
+    messageInput.value = '';
+    const messageList = document.querySelector('.message-list');
+    if (!messageList) return;
+    
+    const currentUser = await auth.getCurrentUser();
+    const messageElement = document.createElement('div');
+    messageElement.className = 'message sent';
+    const bubbleElement = document.createElement('div');
+    bubbleElement.className = 'message-bubble';
+    
+    // Immediate preview for all content types
+    if (content.match(/\.(gif|jpe?g|png)$/i)) {
+      bubbleElement.innerHTML = `
+        <div class="media-container">
+          <img src="${content}" class="message-media" loading="lazy">
+        </div>`;
+    } else {
+      bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content)}</div>`;
+    }
+    
+    messageElement.appendChild(bubbleElement);
+    messageList.appendChild(messageElement);
+    messageElement.scrollIntoView({ behavior: 'smooth' });
+    
+    // Background send
+    await messageManager.sendMessage(currentChatPubkey, content);
+    
+  } catch (error) {
+    console.error('Failed to send message:', error);
+    showErrorMessage('Failed to send message');
+  }
+}
+
+async function renderMessageContent(message, bubbleElement) {
+  const currentUser = await auth.getCurrentUser();
+  
+  // Handle decrypted message content
+  const content = message.decrypted;
+  
+  // Handle different message types
+  if (typeof content === 'object' && content.type) {
+    switch (content.type) {
+      case 'market-order':
+        bubbleElement.innerHTML = `
+          <div class="market-order">
+            <div class="order-header">Order #${content.content.shipping_id}</div>
+            <div class="order-items">
+              ${content.content.items.map(item => 
+                `<div class="order-item">
+                  <span class="quantity">${item.quantity}x</span>
+                  <span class="name">${item.name}</span>
+                  <span class="price">${item.price}</span>
+                </div>`
+              ).join('')}
+            </div>
+            ${content.content.message ? 
+              `<div class="order-message">${content.content.message}</div>` : 
+              ''}
+          </div>`;
+        break;
+
+      case 'media':
+        const isVideo = content.mediaUrl?.match(/\.(mp4|webm|mov|ogg)$/i);
+        bubbleElement.innerHTML = `
+          <div class="media-container">
+            ${isVideo ? 
+              `<video src="${content.mediaUrl}" controls class="message-media"></video>` :
+              `<img src="${content.mediaUrl}" class="message-media" loading="lazy">`
+            }
+            ${content.content ? 
+              `<div class="message-text">${linkifyText(content.content)}</div>` : 
+              ''}
+          </div>`;
+        break;
+
+      default:
+        bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content.content)}</div>`;
+    }
+  } else {
+    // Plain text messages
+    bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content)}</div>`;
+  }
+}
+
+function linkifyText(text) {
+  return text
+    .replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|[a-zA-Z0-9][a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g, (url) => {
+      if (url.match(/\.(jpg|jpeg|gif|png|mpwebm|mov|ogg)$/i)) {
+        return ''; // Don't show media URLs in text
+      }
+      const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+      return `<a href="${fullUrl}" target="_blank" rel="noopener">${url.replace(/^https?:\/\//, '')}</a>`;
+    });
+}
+
+document.getElementById('clearSearch').addEventListener('click', () => {
+  const searchInput = document.getElementById('searchInput');
+  searchInput.value = '';
+  renderContactList(Array.from(contactManager.contacts.values()));
+});
+
+function updateContactInList(contact) {
+  const existingContact = document.querySelector(`[data-pubkey="${contact.pubkey}"]`);
+  if (existingContact) {
+    const newContactElement = createContactElement(contact);
+    existingContact.replaceWith(newContactElement);
+  }
+}
+
+function renderGifs(gifs, container) {
+  container.innerHTML = '';
+  gifs.forEach(gif => {
+    const item = document.createElement('div');
+    item.className = 'gif-item';
+    
+    const img = document.createElement('img');
+    img.src = gif.previewUrl;
+    img.loading = 'lazy';
+    
+    item.appendChild(img);
+    item.addEventListener('click', () => {
+      const messageInput = document.getElementById('messageInput');
+      const cleanUrl = gif.url.split('&ct=g')[0];
+      messageInput.value += ` ${cleanUrl} `;
+      messageInput.focus();
+      container.closest('.gif-picker').remove();
+    });
+    
+    container.appendChild(item);
+  });
+}
+
+function initializeEmojiPicker(emojiButton, messageInput) {
+  if (!emojiButton || !messageInput) return;
+  
+  // Remove any existing listeners
+  const newEmojiButton = emojiButton.cloneNode(true);
+  emojiButton.parentNode.replaceChild(newEmojiButton, emojiButton);
+  
+  newEmojiButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    let existingPicker = document.querySelector('emoji-picker');
+    if (existingPicker) {
+      existingPicker.remove();
+      return;
+    }
+
+    const picker = document.createElement('emoji-picker');
+    picker.style.position = 'absolute';
+    picker.style.bottom = '60px';
+    picker.style.right = '0';
+    picker.style.zIndex = '1000';
+    
+    const inputContainer = document.querySelector('.message-input-container');
+    inputContainer.appendChild(picker);
+    
+    picker.addEventListener('emoji-click', (event) => {
+      messageInput.value += event.detail.unicode;
+      messageInput.focus();
+      picker.remove();
+    });
+
+    // Close picker when clicking outside
+    setTimeout(() => {
+      document.addEventListener('click', function closePickerHandler(e) {
+        if (!picker.contains(e.target) && e.target !== newEmojiButton) {
+          picker.remove();
+          document.removeEventListener('click', closePickerHandler);
+        }
+      });
+    }, 100);
+  });
+}
+
+// Replace the hardcoded streams array with a function to fetch stream data
+async function initializeStreamSection() {
+  const streamData = {
+    pubkey: 'npub1ua6fxn9ktc4jncanf79jzvklgjftcdrt5etverwzzg0lgpmg3hsq2gh6v6',
+    displayName: 'Noderunners Radio',
+    isChannel: true,
+    avatarUrl: 'https://image.nostr.build/9a9c9e5dba5ed17361f2f593dda02bd2ba85a14e69db1f251b27423f43864efe.webp',
+    streamUrl: 'naddr1qqjrvvt9vdjkzc3c943nxdmr956rqc3k95urjdps95crqdmrvd3nxvtxvdskxqghwaehxw309aex2mrp0yhxummnw3ezucnpdejz7qgewaehxw309aex2mrp0yh8xmn0wf6zuum0vd5kzmp0qy88wumn8ghj7mn0wvhxcmmv9uq32amnwvaz7tmjv4kxz7fwv3sk6atn9e5k7tcpz9mhxue69uhkummnw3ezumrpdejz7qg7waehxw309ahx7um5wgkhqatz9emk2mrvdaexgetj9ehx2ap0qyghwumn8ghj7mn0wd68ytnhd9hx2tcpz4mhxue69uhhyetvv9ujumn0wd68ytnzvuhsz9thwden5te0dehhxarj9ehhsarj9ejx2a30qgsv73dxhgfk8tt76gf6q788zrfyz9dwwgwfk3aar6l5gk82a76v9fgrqsqqqan8acwaac'
+  };
+
+  const channel = {
+    ...streamData,
+    id: streamData.pubkey
+  };
+  
+  contactManager.channels.set(channel.pubkey, channel);
+  return channel;
+}
+
+document.getElementById('extensionLoginButton').addEventListener('click', async () => {
+  try {
+    if (!window.nostr) {
+      showErrorMessage('No Nostr extension found.');
+      return;
+    }
+    
+    const user = await auth.login('NIP-07');
+    if (user) {
+      await handleSuccessfulLogin(user);
+    }
+  } catch (error) {
+    console.error('Extension login error:', error);
+    showErrorMessage('Extension login failed: ' + error.message);
+  }
+});
+
+async function loadLinkPreviews() {
+  const links = document.querySelectorAll('.message-text a');
+  
+  for (const link of links) {
+    try {
+      const url = link.href;
+      if (link.nextElementSibling?.classList.contains('link-preview') || 
+          url.match(/\.(jpg|jpeg|gif|png|mp4|webm|mov|ogg)$/i)) {
+        continue;
+      }
+
+      const previewContainer = document.createElement('div');
+      previewContainer.className = 'link-preview';
+
+      const previewContent = document.createElement('div');
+      previewContent.className = 'link-preview-content';
+
+      try {
+        const response = await fetch(url);
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        
+        const title = doc.querySelector('meta[property="og:title"]')?.content || 
+                     doc.querySelector('title')?.textContent || 
+                     new URL(url).hostname;
+                     
+        const description = doc.querySelector('meta[property="og:description"]')?.content || 
+                           doc.querySelector('meta[name="description"]')?.content || '';
+                           
+        const image = doc.querySelector('meta[property="og:image"]')?.content;
+
+        previewContent.innerHTML = `
+          ${image ? `<img src="${image}" alt="${title}" loading="lazy">` : ''}
+          <div class="preview-title">${title}</div>
+          ${description ? `<div class="preview-description">${description}</div>` : ''}
+        `;
+      } catch (err) {
+        console.warn('Failed to fetch preview:', err);
+        previewContent.innerHTML = `
+          <div class="preview-title">${new URL(url).hostname}</div>
+        `;
+      }
+
+      previewContainer.appendChild(previewContent);
+      link.parentNode.insertBefore(previewContainer, link.nextSibling);
+
+    } catch (err) {
+      console.warn('Failed to create preview:', err);
+    }
+  }
+}
+
