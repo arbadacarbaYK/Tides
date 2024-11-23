@@ -553,8 +553,8 @@ async function renderMessages(messages) {
       messageList.appendChild(messageElement);
     });
 
-  // Scroll to bottom after rendering
-  messageList.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  // Force scroll to bottom
+  chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
 // Setup message input handlers
@@ -629,34 +629,24 @@ gifButton.addEventListener('click', () => {
 async function handleStreamChat(pubkey, header, container) {
   const channel = contactManager.channels.get(pubkey);
   if (!channel) {
-    console.error('Stream channel not found:', pubkey);
     container.innerHTML = '<div class="error-message">Stream not available</div>';
     return;
   }
 
-  // Clear any existing chat content
   container.innerHTML = '';
-  
-  // Create and append stream container
-  const streamContainer = document.createElement('div');
-  streamContainer.className = 'video-container';
-  
+  const videoContainer = document.createElement('div');
+  videoContainer.className = 'video-container';
+
   const iframe = document.createElement('iframe');
-  iframe.src = `https://zap.stream/embed/${channel.streamUrl}`;
-  iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
-  iframe.allowFullscreen = true;
-  
-  streamContainer.appendChild(iframe);
-  container.appendChild(streamContainer);
-  
-  // Update header
-  header.innerHTML = `
-    <img src="${channel.avatarUrl || '/icons/default-channel.png'}" 
-         alt="${channel.displayName}" 
-         class="contact-avatar">
-    <span>${channel.displayName}</span>
-    ${channel.about ? `<div class="channel-description">${channel.about}</div>` : ''}
-  `;
+  iframe.src = `https://zap.stream`;
+  iframe.style.width = '100%';
+  iframe.style.height = '100%';
+  iframe.style.border = 'none';
+
+  videoContainer.appendChild(iframe);
+  container.appendChild(videoContainer);
+
+  updateChatHeader(header, channel);
 }
 
 async function subscribeToChannelEvents(channelPubkey) {
@@ -920,7 +910,7 @@ async function initializeStreamSection() {
     displayName: 'Noderunners Radio',
     isChannel: true,
     avatarUrl: 'https://image.nostr.build/9a9c9e5dba5ed17361f2f593dda02bd2ba85a14e69db1f251b27423f43864efe.webp',
-    streamUrl: 'naddr1qqjrvvt9vdjkzc3c943nxdmr956rqc3k95urjdps95crqdmrvd3nxvtxvdskxqghwaehxw309aex2mrp0yhxummnw3ezucnpdejz7qgewaehxw309aex2mrp0yh8xmn0wf6zuum0vd5kzmp0qy88wumn8ghj7mn0wvhxcmmv9uq32amnwvaz7tmjv4kxz7fwv3sk6atn9e5k7tcpz9mhxue69uhkummnw3ezumrpdejz7qg7waehxw309ahx7um5wgkhqatz9emk2mrvdaexgetj9ehx2ap0qyghwumn8ghj7mn0wd68ytnhd9hx2tcpz4mhxue69uhhyetvv9ujumn0wd68ytnzvuhsz9thwden5te0dehhxarj9ehhsarj9ejx2a30qgsv73dxhgfk8tt76gf6q788zrfyz9dwwgwfk3aar6l5gk82a76v9fgrqsqqqan8acwaac'
+    streamUrl: 'naddr1qqjrvvt9vdjkzc3c943nxdmr956rqc3k95urjdps95crqdmrvd3nxvtxvdskxqghwaehxw309aex2mrp0yhxummnw3ezucnpdejz7qgewaehxw309aex2mrp0yh8xmn0wf6zuum0vd5kzmp0qy88wumn8ghj7mn0wvhxcmmv9uq32amnwvaz7tmjv4kxz7fwv3sk6atn9e5k7tcpz9mhxue69uhkummnw3ezumrpdejz7qg7waehxw309ahx7um5wgkhqatz9emk2mrvdaexgetj9ehx2ap0qyghwumn8ghj7mn0wd68ytnhd9hx2tcpz4mhxue69uhhyetvv9ujumn0wd68ytnzvuhsz9thwden5te0dehhxarj9ehhsarj9ejx2a30qgsv73dxhgfk8tt76gf6q788zrfyz9dwwgwfk3aar6l5gk82a76v9fgrqsqqqan8f2t2m0'
   };
 
   const channel = {
