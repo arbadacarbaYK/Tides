@@ -21,22 +21,32 @@ export class MessageManager {
       await relayPool.ensureConnection();
       const relays = relayPool.getConnectedRelays();
       
-      const filter1 = {
-        kinds: [4],
-        "#p": [currentUser.pubkey.toLowerCase()],
-        authors: [pubkey.toLowerCase()]
-      };
+      const userPubkey = currentUser.pubkey.toLowerCase();
+      const contactPubkey = pubkey.toLowerCase();
       
-      const filter2 = {
-        kinds: [4],
-        "#p": [pubkey.toLowerCase()],
-        authors: [currentUser.pubkey.toLowerCase()]
-      };
+      const filters = [
+        {
+          kinds: [4],
+          "#p": [contactPubkey],
+          authors: [userPubkey]
+        },
+        {
+          kinds: [4],
+          "#p": [userPubkey],
+          authors: [contactPubkey]
+        }
+      ];
 
-      const events = await Promise.all([
-        this.pool.list(relays, [filter1]),
-        this.pool.list(relays, [filter2])
-      ]).then(([recv, sent]) => [...recv, ...sent]);
+      if (userPubkey === contactPubkey) {
+        filters.length = 0;
+        filters.push({
+          kinds: [4],
+          "#p": [userPubkey],
+          authors: [userPubkey]
+        });
+      }
+
+      const events = await this.pool.list(relays, filters);
 
       const messages = await Promise.all(
         events
@@ -45,21 +55,19 @@ export class MessageManager {
           .map(async event => {
             const decrypted = await this.decryptMessage(event);
             return decrypted ? {
-              ...event,
-              decrypted,
-              timestamp: event.created_at * 1000
+              id: event.id,
+              pubkey: event.pubkey,
+              content: decrypted,
+              timestamp: event.created_at * 1000,
+              tags: event.tags
             } : null;
           })
       );
 
-      return messages
-        .filter(Boolean)
-        .filter((msg, index, self) => 
-          index === self.findIndex(m => m.id === msg.id)
-        );
+      return messages.filter(Boolean);
     } catch (error) {
       console.error("Error fetching messages:", error);
-      return [];
+      throw error;
     }
   }
 

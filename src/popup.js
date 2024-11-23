@@ -145,6 +145,7 @@ function initializeUI() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   initializeUI();
+  initializeGifButton();
   const storedUser = await auth.getStoredCredentials();
   if (storedUser) {
     await handleSuccessfulLogin(storedUser); 
@@ -391,18 +392,25 @@ function createContactElement(contact) {
   
   // Add click handler
   element.addEventListener('click', async () => {
+    const chatHeader = document.getElementById('chatHeader');
+    const chatContainer = document.getElementById('chatContainer');
+    const messageInputContainer = document.querySelector('.message-input-container');
+    
+    // Remove all previous selections
+    document.querySelectorAll('.contact-item').forEach(el => {
+      el.classList.remove('selected');
+    });
+    element.classList.add('selected');
+    
+    // Reset chat container
+    chatContainer.innerHTML = '';
+    
     if (contact.isChannel) {
-      // For streams/channels, allow selection and initialize stream
-      element.classList.add('selected');
-      await initializeChat(contact.pubkey);
+      messageInputContainer.style.display = 'none';
+      await handleStreamChat(contact.pubkey, chatHeader, chatContainer);
     } else {
-      // For regular contacts, don't remove stream selection
-      document.querySelectorAll('.contact-item').forEach(el => {
-        if (!el.dataset.streamUrl) {
-          el.classList.remove('selected');
-        }
-      });
-      element.classList.add('selected');
+      messageInputContainer.style.display = 'flex';
+      currentChatPubkey = contact.pubkey;
       await initializeChat(contact.pubkey);
     }
   });
@@ -445,34 +453,48 @@ async function initializeChat(pubkey) {
   currentChatPubkey = pubkey;
   
   try {
-    const streamElement = document.querySelector(`[data-pubkey="${pubkey}"][data-stream-url]`);
-    if (streamElement) {
-      handleStreamChat(pubkey, chatHeader, chatContainer);
-      messageInputContainer.style.display = 'none';
-      return;
-    }
-
-    // Regular contact chat
-    messageInputContainer.style.display = 'flex';
     const contact = getContact(pubkey);
     if (!contact) return;
 
+    // Handle stream/channel differently
+    if (contact.isChannel) {
+      await handleStreamChat(pubkey, chatHeader, chatContainer);
+      messageInputContainer.style.display = 'none';
+      // Clear message input and disable buttons for streams
+      const messageInput = document.getElementById('messageInput');
+      const sendButton = document.getElementById('sendButton');
+      const emojiButton = document.getElementById('emojiButton');
+      const gifButton = document.getElementById('gifButton');
+      
+      messageInput.value = '';
+      messageInput.disabled = true;
+      sendButton.disabled = true;
+      emojiButton.disabled = true;
+      gifButton.disabled = true;
+      return;
+    }
+
+    // Regular chat handling continues...
+    messageInputContainer.style.display = 'flex';
     updateChatHeader(chatHeader, contact);
+    chatContainer.innerHTML = '<div class="message-list"><div class="loading-messages">Loading messages...</div></div>';
     
-    // Clear existing messages first
-    chatContainer.innerHTML = '<div class="message-list"></div>';
-    
-    // Fetch and render messages
     const messages = await messageManager.fetchMessages(pubkey);
     if (messages && messages.length > 0) {
-      renderMessages(messages);
+      await renderMessages(messages);
     } else {
       chatContainer.querySelector('.message-list').innerHTML = '<div class="no-messages">No messages yet</div>';
     }
 
+    // Enable input for regular chats
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendButton');
+    messageInput.disabled = false;
+    sendButton.disabled = false;
+
   } catch (error) {
     console.error('Failed to initialize chat:', error);
-    showErrorMessage('Failed to load chat');
+    chatContainer.innerHTML = '<div class="error-message">Failed to load messages</div>';
   }
 }
 
@@ -493,35 +515,46 @@ function resetChatUI() {
   gifButton.disabled = true;
 }
 
-function renderMessages(messages) {
+async function renderMessages(messages) {
   const messageList = document.querySelector('.message-list');
   if (!messageList) return;
   
   messageList.innerHTML = '';
+  const currentUser = await auth.getCurrentUser();
   
   messages
     .sort((a, b) => a.timestamp - b.timestamp)
-    .forEach(async message => {
-      if (!message.decrypted) return;
-      
+    .forEach(message => {
       const messageElement = document.createElement('div');
-      const currentUser = await auth.getCurrentUser();
       const isSent = message.pubkey === currentUser?.pubkey;
       messageElement.className = `message ${isSent ? 'sent' : 'received'}`;
       
       const bubbleElement = document.createElement('div');
       bubbleElement.className = 'message-bubble';
       
-      await renderMessageContent(message, bubbleElement);
+      if (typeof message.content === 'string') {
+        bubbleElement.innerHTML = `<div class="message-text">${linkifyText(message.content)}</div>`;
+      } else {
+        // Handle decrypted content object
+        const content = message.content;
+        if (content.type === 'media') {
+          bubbleElement.innerHTML = `
+            <div class="media-container">
+              <img src="${content.mediaUrl}" class="message-media" loading="lazy">
+            </div>
+            ${content.content ? `<div class="message-text">${linkifyText(content.content)}</div>` : ''}
+          `;
+        } else {
+          bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content.content || '')}</div>`;
+        }
+      }
+      
       messageElement.appendChild(bubbleElement);
       messageList.appendChild(messageElement);
     });
 
   // Scroll to bottom after rendering
-  const chatContainer = document.getElementById('chatContainer');
-  if (chatContainer) {
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-  }
+  messageList.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
 // Setup message input handlers
@@ -595,23 +628,56 @@ gifButton.addEventListener('click', () => {
 
 async function handleStreamChat(pubkey, header, container) {
   const channel = contactManager.channels.get(pubkey);
-  if (!channel) return;
+  if (!channel) {
+    console.error('Stream channel not found:', pubkey);
+    container.innerHTML = '<div class="error-message">Stream not available</div>';
+    return;
+  }
 
+  // Clear any existing chat content
+  container.innerHTML = '';
+  
+  // Create and append stream container
+  const streamContainer = document.createElement('div');
+  streamContainer.className = 'video-container';
+  
+  const iframe = document.createElement('iframe');
+  iframe.src = `https://zap.stream/embed/${channel.streamUrl}`;
+  iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+  iframe.allowFullscreen = true;
+  
+  streamContainer.appendChild(iframe);
+  container.appendChild(streamContainer);
+  
+  // Update header
   header.innerHTML = `
-    <img src="${channel.avatarUrl}" alt="${channel.displayName}" class="contact-avatar">
+    <img src="${channel.avatarUrl || '/icons/default-channel.png'}" 
+         alt="${channel.displayName}" 
+         class="contact-avatar">
     <span>${channel.displayName}</span>
+    ${channel.about ? `<div class="channel-description">${channel.about}</div>` : ''}
   `;
+}
 
-  container.innerHTML = `
-    <div class="video-container">
-      <iframe 
-        src="https://zap.stream/${channel.streamUrl}"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen
-        style="width: 100%; height: 100%; border: none;">
-      </iframe>
-    </div>
-  `;
+async function subscribeToChannelEvents(channelPubkey) {
+  const filter = {
+    kinds: [42],
+    '#e': [channelPubkey]
+  };
+  
+  await relayPool.ensureConnection();
+  const sub = pool.sub(RELAYS.map(relay => ({
+    relay,
+    filter: [filter]
+  })));
+
+  sub.on('event', (event) => {
+    if (validateEvent(event)) {
+      messageManager.handleIncomingMessage(event);
+    }
+  });
+
+  return sub;
 }
 
 function updateChatHeader(header, contact) {
@@ -682,7 +748,16 @@ async function renderMessageContent(message, bubbleElement) {
   // Handle decrypted message content
   const content = message.decrypted;
   
-  // Handle different message types
+  // Check if content is a GIF URL from Giphy
+  if (content.includes('giphy.com')) {
+    bubbleElement.innerHTML = `
+      <div class="media-container">
+        <img src="${content}" class="message-media" loading="lazy">
+      </div>`;
+    return;
+  }
+  
+  // Rest of your existing renderMessageContent logic
   if (typeof content === 'object' && content.type) {
     switch (content.type) {
       case 'market-order':
@@ -755,23 +830,26 @@ function updateContactInList(contact) {
 
 function renderGifs(gifs, container) {
   container.innerHTML = '';
+  
   gifs.forEach(gif => {
     const item = document.createElement('div');
     item.className = 'gif-item';
+    item.style.position = 'relative';
+    item.style.paddingBottom = '75%';  // 4:3 aspect ratio
     
     const img = document.createElement('img');
     img.src = gif.previewUrl;
     img.loading = 'lazy';
+    img.alt = 'GIF';
+    img.style.position = 'absolute';
+    img.style.top = '0';
+    img.style.left = '0';
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    img.style.borderRadius = '8px';
     
     item.appendChild(img);
-    item.addEventListener('click', () => {
-      const messageInput = document.getElementById('messageInput');
-      const cleanUrl = gif.url.split('&ct=g')[0];
-      messageInput.value += ` ${cleanUrl} `;
-      messageInput.focus();
-      container.closest('.gif-picker').remove();
-    });
-    
     container.appendChild(item);
   });
 }
