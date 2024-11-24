@@ -43,14 +43,26 @@ class Auth {
     if (!window.nostr) {
       throw new Error('NIP-07 extension not found');
     }
-    const pubkey = await window.nostr.getPublicKey();
-    const npub = nostrCore.nip19.npubEncode(pubkey);
-    return {
-      type: 'NIP-07',
-      pubkey: pubkey.toLowerCase(),
-      npub,
-      displayId: shortenIdentifier(npub)
-    };
+
+    try {
+      const pubkey = await window.nostr.getPublicKey();
+      const npub = nostrCore.nip19.npubEncode(pubkey);
+      
+      const credentials = {
+        type: 'NIP-07',
+        pubkey: pubkey.toLowerCase(),
+        npub,
+        displayId: shortenIdentifier(npub)
+      };
+
+      await this.storeCredentials(credentials);
+      soundManager.play('login');
+      
+      return credentials;
+    } catch (error) {
+      console.error('NIP-07 login failed:', error);
+      throw error;
+    }
   }
 
   async loginWithNSEC(nsecString) {
@@ -64,15 +76,18 @@ class Auth {
       const publicKey = nostrCore.getPublicKey(privateKey);
       const npub = nostrCore.nip19.npubEncode(publicKey);
       
-      console.log('Login pubkey:', publicKey); // For debugging
-      
-      return {
+      const credentials = {
         type: 'NSEC',
         pubkey: publicKey,
         privkey: privateKey,
-        npub: npub,
+        npub,
         displayId: shortenIdentifier(npub)
       };
+
+      await this.storeCredentials(credentials);
+      soundManager.play('login');
+      
+      return credentials;
     } catch (error) {
       console.error('NSEC login failed:', error);
       throw error;

@@ -1,11 +1,11 @@
-import { SimplePool, nip19, getPublicKey, getEventHash, signEvent } from 'nostr-tools';
+import { SimplePool, nip19, getPublicKey, getEventHash, getSignature } from 'nostr-tools';
 
 // Core nostr functionality export
 export const nostrCore = {
   nip19,
   getPublicKey,
   getEventHash,
-  signEvent
+  getSignature
 };
 
 // Export pool instance for direct use

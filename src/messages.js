@@ -220,11 +220,12 @@ export class MessageManager {
         content: encrypted
       };
 
-      event.id = NostrTools.getEventHash(event);
+      event.id = nostrCore.getEventHash(event);
+      
       if (currentUser.type === 'NIP-07') {
         event.sig = await window.nostr.signEvent(event);
       } else {
-        event.sig = NostrTools.signEvent(event, currentUser.privkey);
+        event.sig = nostrCore.getSignature(event, currentUser.privkey);
       }
 
       const result = {
@@ -238,12 +239,9 @@ export class MessageManager {
       const relays = relayPool.getConnectedRelays();
       await Promise.race([
         this.pool.publish(relays, event),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Publish timeout')), 5000)
-        )
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 5000))
       ]);
 
-      setTimeout(() => this.messageCache.delete(messageKey), 10000);
       return result;
     } catch (error) {
       this.messageCache.delete(messageKey);
