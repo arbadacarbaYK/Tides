@@ -1,5 +1,19 @@
 # Tides: A Nostr-based Messenger
 
+<img src="https://github.com/user-attachments/assets/cb262f4b-6275-43a3-bbb9-eefdd2f3740b" width="350" alt="Bildschirmfoto vom 2024-12-28 04-28-08">
+
+<img src="https://github.com/user-attachments/assets/3c9a6ea2-7deb-4688-a666-2ad9fe09d328" width="350" alt="Bildschirmfoto vom 2024-12-28 04-29-15">
+
+<img src="https://github.com/user-attachments/assets/da4e469a-4cbf-4935-a4fe-deb211a98c3b" width="350" alt="Bildschirmfoto vom 2024-12-28 04-29-42">
+
+
+<img src="https://github.com/user-attachments/assets/f83a865e-7aee-470d-bad1-e5e765004e3d" width="350" alt="Bildschirmfoto vom 2024-12-28 04-30-51">
+
+<img src="https://github.com/user-attachments/assets/7826fcc3-9415-4b01-975c-b1c3a0132665" width="350" alt="Bildschirmfoto vom 2024-12-28 04-31-33">
+
+<img src="https://github.com/user-attachments/assets/fa411735-feda-4f4e-af4d-f4376d3abd71" width="350" alt="Bildschirmfoto vom 2024-12-28 04-31-33">
+
+
 Tides is a messaging application built as Chrome extension that enables secure and private communication using the Nostr protocol.
 
 ## Features
