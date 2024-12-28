@@ -51,7 +51,7 @@ Tides is a messaging application built as Chrome extension that enables secure a
 4. Click the Tides icon in your Chrome toolbar to start using the app
 
 
-To do the build youself start ```npm install``` on the codebase and run ```npm run build``` afterwards. Then open the Extension as described above from the newly created dist-folder.
+To do the build yourself start ```npm install``` on the codebase and run ```npm run build``` afterwards. Then open the Extension as described above from the newly created dist-folder.
 
 
 ## Login Methods
