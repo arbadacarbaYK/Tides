@@ -1,4 +1,4 @@
-# Tides: A Nostr-based Messenger
+# Tides: A Nostr Messenger Extension For Chrome/Brave  
 
 <img src="https://github.com/user-attachments/assets/cb262f4b-6275-43a3-bbb9-eefdd2f3740b" width="350" alt="Bildschirmfoto vom 2024-12-28 04-28-08">
 
