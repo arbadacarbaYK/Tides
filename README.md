@@ -42,12 +42,17 @@ Tides is a messaging application built as Chrome extension that enables secure a
 1. Download the latest release (v1.1.0) from the releases page
 
 2. Install in Chrome:
+   - Unpack the dist-zip from Releases to a new folder
    - Open Chrome and navigate to `chrome://extensions`
    - Enable "Developer mode" in the top right
    - Click "Load unpacked" in the top left
    - Select the downloaded and unzipped Tides folder
 
-3. Click the Tides icon in your Chrome toolbar to start using the app
+4. Click the Tides icon in your Chrome toolbar to start using the app
+
+
+To do the build youself start ```npm install``` on the codebase and run ```npm run build``` afterwards. Then open the Extension as described above from the newly created dist-folder.
+
 
 ## Login Methods
 
