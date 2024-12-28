@@ -5,6 +5,8 @@ class SoundManager {
       message: new Audio(chrome.runtime.getURL('sounds/icq_message.mp3'))
     };
     this.enabled = true;
+    
+    this.sounds.login.volume = 0.1;
   }
 
   async play(type) {

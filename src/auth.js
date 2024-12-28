@@ -1,5 +1,5 @@
 import { nostrCore, pool, RELAYS, shortenIdentifier } from './shared.js';
-import { validateEvent, getStoredCredentials } from './utils.js';
+import { validateEvent, getStoredCredentials, soundManager } from './utils.js';
 import { storeMetadata } from './userMetadata.js';
 
 class Auth {
@@ -30,6 +30,7 @@ class Auth {
 
       if (user) {
         await this.storeCredentials(user);
+        soundManager.play('login');
       }
 
       return user;
@@ -56,7 +57,6 @@ class Auth {
       };
 
       await this.storeCredentials(credentials);
-      soundManager.play('login');
       
       return credentials;
     } catch (error) {
@@ -85,7 +85,6 @@ class Auth {
       };
 
       await this.storeCredentials(credentials);
-      soundManager.play('login');
       
       return credentials;
     } catch (error) {

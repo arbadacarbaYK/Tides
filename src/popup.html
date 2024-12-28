@@ -17,9 +17,10 @@
     <div id="mainContainer">
         <div id="leftPanel">
             <div class="search-container">
-                <input type="text" id="searchInput" placeholder="Search contacts...">
+                <input type="text" id="searchInput" placeholder="Search contacts..." list="search-history">
                 <button id="clearSearch">✕</button>
             </div>
+            <datalist id="search-history"></datalist>
             <div id="contactList"></div>
         </div>
         <div id="rightPanel">
@@ -55,6 +56,7 @@
         </div>
     </div>
     <script src="lib/nostr-tools.js"></script>
-    <script src="popup.js" type="module"></script>
+    <script src="lib/qrcode.min.js"></script>
+    <script src="popup.js"></script>
 </body>
 </html>

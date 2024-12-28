@@ -1,20 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Tides",
-  "version": "1.0.1",
-  "description": "A Nostr-based Messenger",
-  "permissions": ["storage", "notifications"],
+  "version": "1.1.0",
+  "description": "A Nostr Messenger For Your Chromium Browser",
+  "permissions": [
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "*://*/*",
+    "https://*.twitch.tv/*"
+  ],
   "background": {
     "service_worker": "background-wrapper.js"
   },
-  "content_scripts": [{
-    "matches": ["<all_urls>"],
-    "js": ["lib/nostr-tools.js"]
-  }],
-  "web_accessible_resources": [{
-    "resources": ["sounds/*", "icons/*", "lib/*"],
-    "matches": ["<all_urls>"]
-  }],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -27,5 +26,12 @@
     "16": "icons/Logo.png",
     "48": "icons/Logo.png",
     "128": "icons/Logo.png"
+  },
+  "web_accessible_resources": [{
+    "resources": ["sounds/*", "icons/*", "lib/*"],
+    "matches": ["<all_urls>"]
+  }],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube.com https://youtube.com https://*.twitter.com https://*.x.com https://*.instagram.com https://*.tiktok.com https://player.twitch.tv https://embed.twitch.tv https://*.twitch.tv https://radio.noderunners.org"
   }
 }

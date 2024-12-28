@@ -14,60 +14,65 @@ export class MessageManager {
   async fetchMessages(pubkey) {
     const currentUser = await auth.getCurrentUser();
     if (!currentUser?.pubkey) {
-      throw new Error("User not authenticated");
+      throw new Error('User not authenticated');
     }
 
     try {
       await relayPool.ensureConnection();
-      const relays = relayPool.getConnectedRelays();
+      const connectedRelays = relayPool.getConnectedRelays();
       
       const userPubkey = currentUser.pubkey.toLowerCase();
-      const contactPubkey = pubkey.toLowerCase();
-      
+      const targetPubkey = pubkey.toLowerCase();
+
+      // Create filters for both sent and received messages
       const filters = [
         {
           kinds: [4],
-          "#p": [contactPubkey],
+          '#p': [targetPubkey],
           authors: [userPubkey]
         },
         {
           kinds: [4],
-          "#p": [userPubkey],
-          authors: [contactPubkey]
+          '#p': [userPubkey],
+          authors: [targetPubkey]
         }
       ];
 
-      if (userPubkey === contactPubkey) {
+      // Handle self-messages
+      if (userPubkey === targetPubkey) {
         filters.length = 0;
         filters.push({
           kinds: [4],
-          "#p": [userPubkey],
+          '#p': [userPubkey],
           authors: [userPubkey]
         });
       }
 
-      const events = await this.pool.list(relays, filters);
+      const events = await this.pool.list(connectedRelays, filters);
 
+      // Process and decrypt messages
       const messages = await Promise.all(
         events
           .filter(this.validateEvent)
           .sort((a, b) => a.created_at - b.created_at)
-          .map(async event => {
+          .map(async (event) => {
             const decrypted = await this.decryptMessage(event);
-            return decrypted ? {
+            if (!decrypted) return null;
+            
+            return {
               id: event.id,
               pubkey: event.pubkey,
               content: decrypted,
               timestamp: event.created_at * 1000,
               tags: event.tags
-            } : null;
+            };
           })
       );
 
       return messages.filter(Boolean);
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-      throw error;
+    } catch (err) {
+      console.error('Error fetching messages:', err);
+      throw err;
     }
   }
 
@@ -75,77 +80,40 @@ export class MessageManager {
     try {
       const currentUser = await auth.getCurrentUser();
       const privateKey = await auth.getPrivateKey();
-      if (!privateKey) throw new Error('No private key available');
-  
-      let decrypted;
-      const isOwnMessage = event.pubkey === currentUser.pubkey;
       
+      if (!privateKey) {
+        throw new Error('No private key available');
+      }
+
+      let decrypted;
+      const isSent = event.pubkey === currentUser.pubkey;
+      
+      // Get recipient pubkey from tags
+      const recipientPubkey = isSent 
+        ? event.tags.find(tag => tag[0] === 'p')?.[1] 
+        : event.pubkey;
+        
+      if (!recipientPubkey) {
+        throw new Error('No recipient pubkey found in tags');
+      }
+
+      // Handle different encryption methods
       if (privateKey === window.nostr) {
         decrypted = await window.nostr.nip04.decrypt(
-          isOwnMessage ? event.tags.find(t => t[0] === 'p')?.[1] : event.pubkey,
+          isSent ? recipientPubkey : event.pubkey,
           event.content
         );
       } else {
         decrypted = await NostrTools.nip04.decrypt(
           privateKey,
-          isOwnMessage ? event.tags.find(t => t[0] === 'p')?.[1] : event.pubkey,
+          isSent ? recipientPubkey : event.pubkey,
           event.content
         );
       }
-  
-      // First check if it's a market order
-      try {
-        const parsed = JSON.parse(decrypted);
-        if (parsed.items && parsed.shipping_id) {
-          return {
-            type: 'market-order',
-            content: parsed
-          };
-        }
-      } catch {}
-  
-      // Check if content is a Giphy URL
-      if (decrypted.includes('giphy.com')) {
-        return {
-          type: 'media',
-          content: '',
-          mediaUrl: decrypted,
-          urls: [decrypted]
-        };
-      }
-  
-      // Then check for media links
-      const mediaMatch = decrypted.match(/https?:\/\/[^\s<]+[^<.,:;"')\]\s](?:\.(?:jpg|jpeg|gif|png|mp4|webm|mov|ogg))/i);
-      const urlMatch = decrypted.match(/https?:\/\/[^\s<]+/g);
-      const textContent = decrypted.replace(mediaMatch?.[0] || '', '').trim();
 
-      if (mediaMatch) {
-        return {
-          type: 'media',
-          content: textContent || decrypted,
-          mediaUrl: mediaMatch[0],
-          urls: urlMatch?.filter(url => url !== mediaMatch[0]) || []
-        };
-      }
-  
-      // Check for URLs that might need preview
-      if (urlMatch) {
-        return {
-          type: 'text',
-          content: decrypted,
-          urls: urlMatch,
-          needsPreview: true
-        };
-      }
-  
-      // Regular text (may include emojis)
-      return {
-        type: 'text',
-        content: decrypted
-      };
-  
-    } catch (error) {
-      console.error('Failed to decrypt message:', error);
+      return decrypted;
+    } catch (err) {
+      console.error('Failed to decrypt message:', err);
       return null;
     }
   }
@@ -159,8 +127,8 @@ export class MessageManager {
              event.created_at && 
              event.kind && 
              event.content;
-    } catch (error) {
-      console.error('Event validation failed:', error);
+    } catch (err) {
+      console.error('Event validation failed:', err);
       return null;
     }
   }

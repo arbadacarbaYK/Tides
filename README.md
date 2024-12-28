@@ -2,30 +2,30 @@
 
 Tides is a messaging application built as Chrome extension that enables secure and private communication using the Nostr protocol.
 
-<p align="center">
-<img src="https://github.com/user-attachments/assets/85527f53-7f04-4ff9-8e93-ef78ba71d737" width="300" />
-<img src="https://github.com/user-attachments/assets/d9b07c28-dcfb-4934-9a90-519612f1925c" width="300" />
-<img src="https://github.com/user-attachments/assets/7cde7eac-10d8-4181-8a15-0bbeef1b3ab2" width="300" />
-</p>
-
-
 ## Features
 
 - Secure login via:
-  - NIP-07 browser extension (recommended)
+  - NIP-07 browser extension 
   - Chrome storage
   - Manual private key (nsec)
 - Real-time encrypted messaging
-- Contact management with profile pictures and usernames
-- Message notifications with sound
-- Media sharing support (images, videos, GIFs)
+- Media link sharing and preview support:
+  - Images (PNG, JPG, WEBP, GIF)
+  - Videos (MP4, WEBM)
+  - YouTube videos
+  - Twitter/X posts
+  - Nostr notes and profiles
 - Emoji picker
 - Link previews
 - Multi-relay support
+- Zaps support 
+- Search history for contacts
+- Integrated Noderunners Radio stream
+
 
 ## Installation
 
-1. Download the latest release from the releases page
+1. Download the latest release (v1.1.0) from the releases page
 
 2. Install in Chrome:
    - Open Chrome and navigate to `chrome://extensions`
@@ -37,7 +37,7 @@ Tides is a messaging application built as Chrome extension that enables secure a
 
 ## Login Methods
 
-1. **NIP-07 Extension (Recommended)**
+1. **NIP-07 Extension**
    - Install a Nostr signer extension (like nos2x or Alby)
    - Click "Login with Extension" in Tides
 
@@ -57,13 +57,18 @@ Built using:
 - Chrome Storage API for data persistence
 - Web Notifications API
 - Giphy API for GIF support
+- WebLN for Lightning Network integration
 
 Supports NIPs:
 - NIP-01: Basic protocol
 - NIP-04: Encrypted Direct Messages
 - NIP-05: DNS Identifiers
 - NIP-07: Browser Extension
+- NIP-19: bech32-encoded entities
+- NIP-21: nostr: URL scheme
+- NIP-25: Reactions
 - NIP-44: Versioned Encryption
+- NIP-57: Lightning Zaps
 - NIP-89: Application Handlers
 
 ## Privacy & Security
@@ -73,6 +78,4 @@ Supports NIPs:
 - Private keys never leave your device
 - Open source and auditable
 
-## License
 
-MIT License - See LICENSE file for details

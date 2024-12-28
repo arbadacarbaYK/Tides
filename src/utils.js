@@ -90,8 +90,8 @@ export async function getPrivateKey() {
 class SoundManager {
   constructor() {
     this.sounds = new Map([
-      ['login', 'sounds/login.mp3'],
-      ['message', 'sounds/message.mp3']
+      ['login', chrome.runtime.getURL('sounds/login.mp3')],
+      ['message', chrome.runtime.getURL('sounds/icq_message.mp3')]
     ]);
     this.played = new Set();
     this.enabled = true;
@@ -110,6 +110,9 @@ class SoundManager {
 
     try {
       const audio = new Audio(soundPath);
+      if (type === 'login') {
+        audio.volume = 0.1;
+      }
       await audio.play();
       if (onlyOnce) {
         this.played.add(type);

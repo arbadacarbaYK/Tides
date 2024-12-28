@@ -9,7 +9,11 @@ export const nostrCore = {
 };
 
 // Export pool instance for direct use
-export const pool = new SimplePool();
+export const pool = new SimplePool({
+  eoseSubTimeout: 2000,
+  getTimeout: 2000,
+  connectTimeout: 1500
+});
 
 // Relay list
 export const RELAYS = [
@@ -30,7 +34,7 @@ export function pubkeyToNpub(pubkey) {
 }
 
 // Relay pool management
-class RelayPool {
+export class RelayPool {
   constructor() {
     this.pool = pool;
     this.connectedRelays = new Set();
@@ -45,7 +49,6 @@ class RelayPool {
       try {
         await this.pool.ensureRelay(url);
         this.connectedRelays.add(url);
-        console.log(`Connected to relay: ${url}`);
         return true;
       } catch (error) {
         console.warn(`Failed to connect to relay: ${url}`, error);
