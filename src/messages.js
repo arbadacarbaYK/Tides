@@ -216,6 +216,16 @@ export class MessageManager {
       throw error;
     }
   }
+
+  async hasMessages(pubkey) {
+    try {
+      const messages = await this.fetchMessages(pubkey);
+      return messages && messages.length > 0;
+    } catch (error) {
+      console.warn(`Failed to check messages for ${pubkey}:`, error);
+      return false;
+    }
+  }
 }
 
 export const messageManager = new MessageManager();

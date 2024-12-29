@@ -10,9 +10,9 @@ export const nostrCore = {
 
 // Export pool instance for direct use
 export const pool = new SimplePool({
-  eoseSubTimeout: 2000,
-  getTimeout: 2000,
-  connectTimeout: 1500
+  eoseSubTimeout: 3500,
+  getTimeout: 3500,
+  connectTimeout: 2500
 });
 
 // Relay list

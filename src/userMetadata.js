@@ -1,13 +1,38 @@
+/**
+ * @file userMetadata.js
+ * @description User Profile Management for Tides Nostr Messenger
+ * 
+ * This module handles all user metadata operations including:
+ * - Fetching profiles from Nostr relays
+ * - Caching metadata locally
+ * - Queue management for metadata requests
+ * - Fallback avatar and name handling
+ * 
+ * The module implements an efficient queuing system to prevent
+ * relay spam when multiple metadata requests occur simultaneously.
+ * 
+ * 🧙‍♂️ "Behind every pubkey is a story waiting to be told"
+ */
+
 import { pool, relayPool } from './shared.js';
 import { toLowerCaseHex } from './utils.js';
 import { pubkeyToNpub, shortenIdentifier } from './shared.js';
 
+/** Queue for handling multiple metadata requests */
 const metadataQueue = [];
+/** Flag to prevent concurrent queue processing */
 let isProcessingQueue = false;
 
+/**
+ * Process queued metadata requests sequentially
+ * This prevents overwhelming relays with simultaneous requests
+ * and ensures efficient caching
+ * @private
+ */
 async function processMetadataQueue() {
   if (isProcessingQueue) return;
   isProcessingQueue = true;
+  
   while (metadataQueue.length > 0) {
     const { pubkey, resolve, reject } = metadataQueue.shift();
     try {
@@ -24,6 +49,17 @@ async function processMetadataQueue() {
   isProcessingQueue = false;
 }
 
+/**
+ * Fetch and process user metadata
+ * @param {string} pubkey - User's public key in hex format
+ * @returns {Promise<Object>} User metadata object containing profile information
+ * @property {string} name - User's display name
+ * @property {string} picture - URL to user's avatar
+ * @property {string} [about] - User's bio/description
+ * @property {string} [nip05] - NIP-05 verification address
+ * @property {string} [lud16] - Lightning address for payments
+ * @throws {Error} If metadata cannot be fetched or processed
+ */
 export async function getUserMetadata(pubkey) {
   try {
     let metadata = await getStoredMetadata(pubkey);
@@ -37,9 +73,10 @@ export async function getUserMetadata(pubkey) {
     return metadata;
   } catch (error) {
     console.error('Error getting metadata:', error);
+    // Return default profile if metadata fetch fails
     return {
       name: shortenIdentifier(pubkeyToNpub(pubkey)),
-      picture: 'icons/default-avatar.png'
+      picture: '/icons/default-avatar.png'
     };
   }
 }
@@ -117,7 +154,7 @@ async function fetchMetadataFromRelay(pubkey) {
     console.error("Error fetching metadata:", error);
     return {
       name: shortenIdentifier(pubkeyToNpub(pubkey)),
-      picture: 'icons/default-avatar.png'
+      picture: '/icons/default-avatar.png'
     };
   }
 }
