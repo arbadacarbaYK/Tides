@@ -1,5 +1,8 @@
 # Tides: A Nostr Messenger Extension For Chrome/Brave  
 
+Tides is a powerful Nostr messenger that lives right in your browser as an extension. 
+Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or Edge.
+
 <img src="https://github.com/user-attachments/assets/cb262f4b-6275-43a3-bbb9-eefdd2f3740b" width="350" alt="Bildschirmfoto vom 2024-12-28 04-28-08">
 
 <img src="https://github.com/user-attachments/assets/3c9a6ea2-7deb-4688-a666-2ad9fe09d328" width="350" alt="Bildschirmfoto vom 2024-12-28 04-29-15">
@@ -14,61 +17,72 @@
 <img src="https://github.com/user-attachments/assets/fa411735-feda-4f4e-af4d-f4376d3abd71" width="350" alt="Bildschirmfoto vom 2024-12-28 04-31-33">
 
 
-Tides is a messaging application built as Chrome extension that enables secure and private communication using the Nostr protocol.
+## Features 🚀
 
-## Features
+- **Direct Messaging**: Seamless peer-to-peer communication over the Nostr network
+- **Zaps Integration**: Send and receive Bitcoin tips via Lightning Network
+- **Media Support**: Share images, GIFs, and embed content from popular platforms
+- **Rich Link Previews**: Automatic previews for Nostr notes, profiles, and media links
+- **Multiple Relay Support**: Connect to various Nostr relays for increased reliability
+- **Extension Login**: Compatible with NIP-07 browser extensions like Alby and nos2x
+- **Offline Support**: Access your message history even when offline
+- **Custom Themes**: Dark mode support with a sleek, modern interface
 
-- Secure login via:
-  - NIP-07 browser extension 
-  - Chrome storage
-  - Manual private key (nsec)
-- Real-time encrypted messaging
-- Media link sharing and preview support:
-  - Images (PNG, JPG, WEBP, GIF)
-  - Videos (MP4, WEBM)
-  - YouTube videos
-  - Twitter/X posts
-  - Nostr notes and profiles
-- Emoji picker
-- Link previews
-- Multi-relay support
-- Zaps support 
-- Search history for contacts
-- Integrated Noderunners Radio stream
+## Installation for Users 🔧
 
+### Manual Installation from ZIP
+1. Download the latest release `.zip` file
+2. Extract the ZIP file - the contents should contain `manifest.json` and other files
+3. Open your browser and navigate to:
+   - Brave: `brave://extensions`
+   - Chrome: `chrome://extensions`
+   - Edge: `edge://extensions`
+4. Enable "Developer mode" in the top right corner
+5. Click "Load unpacked" and select the folder containing the extracted files
+6. Make sure to enable "Add to taskbar" in the extension details to see the icon
+7. The extension icon should appear in your browser toolbar
 
-## Installation
+## For Developers 🛠️
 
-1. Download the latest release (v1.1.0) from the releases page
+### Setting Up the Development Environment
 
-2. Install in Chrome:
-   - Unpack the dist-zip from Releases to a new folder
-   - Open Chrome and navigate to `chrome://extensions`
-   - Enable "Developer mode" in the top right
-   - Click "Load unpacked" in the top left
-   - Select the downloaded and unzipped Tides folder
+1. Clone the repository:
+```
+git clone https://github.com/yourusername/tides.git
+cd tides
+```
 
-4. Click the Tides icon in your Chrome toolbar to start using the app
+2. Install dependencies and build:
+```
+npm install
+npm run build
+```
 
+3. Load the extension in your browser:
+   - Navigate to the extensions page (see installation instructions above)
+   - Enable "Developer mode"
+   - Click "Load unpacked"
+   - Select the `dist` directory from your build
+   - Enable "Add to taskbar" in extension details
 
-To do the build yourself start ```npm install``` on the codebase and run ```npm run build``` afterwards. Then open the Extension as described above from the newly created dist-folder.
+### Project Structure
 
+```
+src/
+├── background.js      # Service worker and background processes
+├── popup.js          # Main UI logic
+├── popup.html        # Extension popup interface
+├── style.css         # Styling
+├── shared.js         # Shared utilities and constants
+├── userMetadata.js   # User profile handling
+├── services/         # External API integrations (Giphy, etc.)
+├── sounds/          # Audio files for notifications
+├── icons/           # Extension and UI icons
+├── state/           # State management and persistence
+└── lib/             # Third-party libraries
+```
 
-## Login Methods
-
-1. **NIP-07 Extension**
-   - Install a Nostr signer extension (like nos2x or Alby)
-   - Click "Login with Extension" in Tides
-
-2. **Chrome Storage**
-   - Your credentials will be securely stored in Chrome
-   - Automatically logs you in on browser restart
-
-3. **Manual Login**
-   - Enter your nsec private key
-   - Not recommended for regular use
-
-## Technical Details
+### Technical Details
 
 Built using:
 - nostr-tools for protocol handling
@@ -90,11 +104,77 @@ Supports NIPs:
 - NIP-57: Lightning Zaps
 - NIP-89: Application Handlers
 
-## Privacy & Security
+### Development Guidelines
 
-- End-to-end encrypted messages
-- No central server
+1. **Authentication Flow**
+   - Support both NIP-07 extension login and manual nsec
+   - Implement secure credential storage
+   - Handle auto-login via Chrome storage
+   - Validate all key formats
+
+2. **Relay Management**
+   - Implement connection pooling
+   - Handle relay failures gracefully
+   - Cache messages for offline use
+   - Monitor relay health
+
+3. **Message Handling**
+   - Encrypt all DMs using NIP-04
+   - Validate message signatures
+   - Handle different content types
+   - Implement proper error recovery
+
+4. **Performance**
+   - Cache user metadata locally
+   - Implement lazy loading for media
+   - Optimize WebSocket connections
+   - Minimize storage usage
+
+## Privacy & Security 🔒
+
+- End-to-end encrypted messages using both:
+  - NIP-04: Legacy encryption support
+  - NIP-44: Latest versioned encryption protocol
+- No central server, pure P2P communication
 - Private keys never leave your device
-- Open source and auditable
+- Local storage encryption for cached data
+- Open source and auditable code
+- No tracking or analytics
+- Minimal permission requirements
+- Secure relay connections only
 
+## Contributing 🤝
 
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## Support ⚡
+
+If you find this project useful, please consider sending a zap to support development at arbadacarba@btip.nl!
+
+## License 📄
+
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 
+
+This means you are free to:
+
+- Share: Copy and redistribute the material in any medium or format
+
+- Adapt: Remix, transform, and build upon the material
+Under the following terms:
+- Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made
+- NonCommercial: You may not use the material for commercial purposes
+- No additional restrictions: You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits
+
+For more information, see [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
+
+## Acknowledgments 🙏
+
+- The Nostr community for their amazing psychoOs and tools
+- Lightning Network developers making instant payments possible
+- All contributors and users making this project better
+
+---
