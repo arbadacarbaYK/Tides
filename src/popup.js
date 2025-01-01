@@ -1,21 +1,3 @@
-/**
- * @file popup.js
- * @description Main UI Controller for Tides Nostr Messenger
- * 
- * This file manages all user interface interactions including:
- * - Login and authentication flows
- * - Message display and sending
- * - Contact list management
- * - Media previews and embeds
- * - Zap (Lightning) interactions
- * - Sound effects and notifications
- * 
- * The UI is designed to be responsive and provide immediate feedback
- * while maintaining a clean, intuitive interface for users.
- * 
- * 🎨 "Where function meets form, and Bitcoin meets chat"
- */
-
 import { auth } from './auth.js';
 import { fetchContacts, setContacts, contactManager, getContact } from './contact.js';
 import { pubkeyToNpub } from './shared.js';
@@ -161,11 +143,6 @@ async function initializeUI() {
   });
 }
 
-/**
- * Initialize the application when DOM content is loaded
- * Sets up event listeners, checks authentication status,
- * and prepares the UI for user interaction
- */
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSearchHistory();
   initializeSearchInput();
@@ -197,16 +174,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-/**
- * Handle successful user login
- * Sets up the main UI, loads user data, and initializes
- * real-time message handling
- * @param {Object} user - User credentials and metadata
- * @returns {Promise<void>}
- */
 async function handleSuccessfulLogin(user) {
   try {
     document.getElementById('loadingIndicator').style.display = 'block';
+    
+    // First send login success to background and wait for initialization
+    await chrome.runtime.sendMessage({ type: 'LOGIN_SUCCESS', data: { user } });
+    
+    // Wait a bit for metadata to be fetched through background events
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Then load user data
     await loadUserData(user);
     
     document.getElementById('mainContainer').style.display = 'grid';
@@ -277,20 +255,11 @@ async function loadUserData(user) {
   }
 }
 
-/**
- * Display the main application interface
- * Handles UI state transitions and animations
- */
 function showMainScreen() {
   document.body.classList.remove('login-screen');
   document.body.classList.add('main-screen');
 }
 
-/**
- * Display error messages to the user
- * Messages auto-hide after 3 seconds
- * @param {string} message - Error message to display
- */
 function showErrorMessage(message) {
   const errorDiv = document.getElementById('errorMessage');
   if (!errorDiv) {
@@ -306,11 +275,6 @@ function showErrorMessage(message) {
   }, 3000);
 }
 
-/**
- * Process and display new messages
- * Handles notifications and sound effects
- * @param {Object} message - Nostr message event
- */
 function handleNewMessage(message) {
   const contact = getContact(message.pubkey);
   const notification = new Notification(
@@ -328,11 +292,6 @@ function handleNewMessage(message) {
   }
 }
 
-/**
- * Update UI with user metadata
- * Displays user avatar, name, and other profile information
- * @param {Object} metadata - User profile metadata
- */
 function updateUIWithMetadata(metadata) {
   console.log('Updating UI with metadata:', metadata);
   const userDisplay = document.getElementById('userDisplay');
@@ -379,61 +338,100 @@ async function renderContactList(contacts) {
   streamSection.appendChild(streamContent);
   contactList.appendChild(streamSection);
 
-  // Rest of the contacts section remains the same
   if (contacts && contacts.length > 0) {
-    // Split contacts into active and inactive
-    const activeContacts = contacts.filter(c => c.hasMessages);
-    const inactiveContacts = contacts.filter(c => !c.hasMessages);
-    
-    // Active Contacts Section
-    if (activeContacts.length > 0) {
-      const activeSection = document.createElement('div');
-      activeSection.className = 'contact-section';
+    // Get all messages for each contact first
+    const contactsWithMessages = await Promise.all(contacts.map(async (contact) => {
+      const messages = await messageManager.fetchMessages(contact.pubkey);
+      const lastMessage = messages && messages.length > 0 
+        ? messages.reduce((latest, msg) => msg.created_at > latest.created_at ? msg : latest)
+        : null;
+      return {
+        ...contact,
+        lastMessageTime: lastMessage ? lastMessage.created_at : null
+      };
+    }));
+
+    // Split contacts into recent and other based on message existence
+    const recentContacts = contactsWithMessages.filter(c => c.lastMessageTime !== null);
+    const otherContacts = contactsWithMessages.filter(c => c.lastMessageTime === null);
+
+    console.log('Recent contacts:', recentContacts.length);
+    console.log('Other contacts:', otherContacts.length);
+
+    // Sort recent contacts by last message time
+    recentContacts.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
+
+    // Create Recent Chats section if there are any
+    if (recentContacts.length > 0) {
+      const recentSection = document.createElement('div');
+      recentSection.className = 'contact-section';
       
-      const activeHeader = document.createElement('div');
-      activeHeader.className = 'section-header';
-      activeHeader.dataset.section = 'active-contacts';
-      activeHeader.innerHTML = '<h3>Recent Chats</h3><span class="collapse-icon">▼</span>';
+      const recentHeader = document.createElement('div');
+      recentHeader.className = 'section-header';
+      recentHeader.dataset.section = 'recent';
+      recentHeader.innerHTML = '<h3>Recent Chats</h3><span class="collapse-icon">▼</span>';
       
-      const activeContent = document.createElement('div');
-      activeContent.className = 'section-content';
-      activeContent.id = 'activeContactsContent';
+      const recentContent = document.createElement('div');
+      recentContent.className = 'section-content';
+      recentContent.id = 'recentContent';
       
-      activeContacts.forEach(contact => {
+      recentContacts.forEach(contact => {
         const contactElement = createContactElement(contact);
-        activeContent.appendChild(contactElement);
+        if (contact.isTemporary) {
+          contactElement.classList.add('non-contact');
+        }
+        recentContent.appendChild(contactElement);
       });
       
-      activeSection.appendChild(activeHeader);
-      activeSection.appendChild(activeContent);
-      contactList.appendChild(activeSection);
+      recentSection.appendChild(recentHeader);
+      recentSection.appendChild(recentContent);
+      contactList.appendChild(recentSection);
     }
-    
-    // Other Contacts Section
-    if (inactiveContacts.length > 0) {
-      const inactiveSection = document.createElement('div');
-      inactiveSection.className = 'contact-section';
+
+    // Create Other Contacts section if there are any
+    if (otherContacts.length > 0) {
+      const otherSection = document.createElement('div');
+      otherSection.className = 'contact-section';
       
-      const inactiveHeader = document.createElement('div');
-      inactiveHeader.className = 'section-header';
-      inactiveHeader.dataset.section = 'inactive-contacts';
-      inactiveHeader.innerHTML = '<h3>Other Contacts</h3><span class="collapse-icon">▼</span>';
+      const otherHeader = document.createElement('div');
+      otherHeader.className = 'section-header';
+      otherHeader.dataset.section = 'other';
+      otherHeader.innerHTML = '<h3>Other Contacts</h3><span class="collapse-icon">▼</span>';
       
-      const inactiveContent = document.createElement('div');
-      inactiveContent.className = 'section-content';
-      inactiveContent.id = 'inactiveContactsContent';
+      const otherContent = document.createElement('div');
+      otherContent.className = 'section-content';
+      otherContent.id = 'otherContent';
       
-      inactiveContacts.forEach(contact => {
+      // Sort other contacts alphabetically by display name
+      otherContacts.sort((a, b) => a.displayName.localeCompare(b.displayName));
+      
+      otherContacts.forEach(contact => {
         const contactElement = createContactElement(contact);
-        inactiveContent.appendChild(contactElement);
+        otherContent.appendChild(contactElement);
       });
       
-      inactiveSection.appendChild(inactiveHeader);
-      inactiveSection.appendChild(inactiveContent);
-      contactList.appendChild(inactiveSection);
+      otherSection.appendChild(otherHeader);
+      otherSection.appendChild(otherContent);
+      contactList.appendChild(otherSection);
     }
   }
 }
+
+// Add search functionality
+document.getElementById('searchInput').addEventListener('input', function(e) {
+  const searchTerm = e.target.value.toLowerCase();
+  const contacts = Array.from(contactManager.contacts.values());
+  
+  if (searchTerm) {
+    const filteredContacts = contacts.filter(contact => 
+      contact.displayName.toLowerCase().includes(searchTerm) ||
+      contact.npub.toLowerCase().includes(searchTerm)
+    );
+    renderContactList(filteredContacts);
+  } else {
+    renderContactList(contacts);
+  }
+});
 
 function createContactElement(contact) {
   const element = document.createElement('div');
@@ -447,28 +445,13 @@ function createContactElement(contact) {
     element.classList.add('selected');
   }
   
+  const avatarSrc = contact.avatarUrl || (contact.isChannel ? '/icons/default-avatar.png' : '/icons/default-avatar.png');
+  
+  // Create elements directly instead of using innerHTML
   const img = document.createElement('img');
-  img.className = 'contact-avatar';
+  img.src = avatarSrc;
   img.alt = contact.displayName;
-  
-  // Handle image load errors
-  img.onerror = function() {
-    // Check if the failed URL was from Twitter/X
-    if (this.src.includes('twimg.com')) {
-      // Try to load the image without _400x400 suffix
-      const newUrl = this.src.replace(/_400x400/, '');
-      if (newUrl !== this.src) {
-        this.src = newUrl;
-        return;
-      }
-    }
-    // If all else fails, use default avatar
-    this.src = '/icons/default-avatar.png';
-    // Remove onerror handler to prevent loops
-    this.onerror = null;
-  };
-  
-  img.src = contact.avatarUrl || '/icons/default-avatar.png';
+  img.className = 'contact-avatar';
 
   const contactInfo = document.createElement('div');
   contactInfo.className = 'contact-info';
@@ -477,6 +460,15 @@ function createContactElement(contact) {
   nameSpan.className = 'contact-name';
   nameSpan.textContent = contact.displayName;
   contactInfo.appendChild(nameSpan);
+
+  // Add last message time if available
+  const lastMessageTime = contactManager.lastMessageTimes.get(contact.pubkey);
+  if (lastMessageTime) {
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'last-message-time';
+    timeSpan.textContent = formatTime(lastMessageTime);
+    contactInfo.appendChild(timeSpan);
+  }
 
   if (!contact.isChannel) {
     const indicator = document.createElement('div');
@@ -511,8 +503,27 @@ function createContactElement(contact) {
       await initializeChat(contact.pubkey);
     }
   });
-  
+
   return element;
+}
+
+function formatTime(timestamp) {
+  const date = new Date(timestamp * 1000);
+  const now = new Date();
+  const diff = now - date;
+  
+  // If less than 24 hours ago, show time
+  if (diff < 24 * 60 * 60 * 1000) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  
+  // If less than 7 days ago, show day of week
+  if (diff < 7 * 24 * 60 * 60 * 1000) {
+    return date.toLocaleDateString([], { weekday: 'short' });
+  }
+  
+  // Otherwise show date
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 async function selectContact(pubkey) {
@@ -538,10 +549,27 @@ async function initializeChat(pubkey) {
     updateChatHeader(chatHeader, contact);
   }
   
-  chatContainer.innerHTML = '<div class="message-list"><div class="loading-messages">Loading messages...</div></div>';
+  // Show loading spinner
+  chatContainer.innerHTML = `
+    <div class="message-list">
+      <div class="chat-loading-spinner">
+        <div class="spinner"></div>
+      </div>
+    </div>`;
   
   const messages = await messageManager.fetchMessages(pubkey);
   if (messages && messages.length > 0) {
+    // Update last message time for the contact
+    const lastMessage = messages.reduce((latest, msg) => 
+      msg.created_at > latest.created_at ? msg : latest
+    );
+    
+    // Only update the specific contact's last message time
+    const currentTime = contactManager.lastMessageTimes.get(pubkey);
+    if (!currentTime || lastMessage.created_at > currentTime) {
+      contactManager.updateLastMessageTime(pubkey, lastMessage.created_at);
+    }
+    
     await renderMessages(messages);
   } else {
     chatContainer.querySelector('.message-list').innerHTML = '<div class="no-messages">No messages yet</div>';
@@ -779,10 +807,14 @@ async function sendMessage() {
       messageList.scrollTop = messageList.scrollHeight;
     }, 100);
     
-    await messageManager.sendMessage(currentChatPubkey, content);
+    const result = await messageManager.sendMessage(currentChatPubkey, content);
+    
+    // Update last message time and re-render contact list
+    contactManager.updateLastMessageTime(currentChatPubkey, result.created_at);
+    renderContactList(Array.from(contactManager.contacts.values()));
+    
   } catch (error) {
     console.error('Failed to send message:', error);
-    showErrorMessage('Failed to send message');
   }
 }
 
@@ -971,10 +1003,7 @@ function initializeEmojiPicker(emojiButton, messageInput) {
   });
 }
 
-/**
- * Initialize the stream section with Noderunners Radio
- * @returns {Promise<Object>} Channel configuration
- */
+// Replace the hardcoded streams array with a function to fetch stream data
 async function initializeStreamSection() {
   const streamData = {
     pubkey: 'noderunnersradio',
@@ -995,10 +1024,6 @@ async function initializeStreamSection() {
   return channel;
 }
 
-/**
- * Handle extension-based login attempts
- * Supports NIP-07 compatible extensions like Alby and nos2x
- */
 document.getElementById('extensionLoginButton').addEventListener('click', async () => {
   try {
     // Check if window.nostr exists after a short delay to allow extension injection
@@ -1025,23 +1050,254 @@ document.getElementById('extensionLoginButton').addEventListener('click', async 
   }
 });
 
-/**
- * Create a Lightning invoice for zaps
- * @param {Object} metadata - User metadata containing lightning address
- * @param {number} amount - Payment amount in millisatoshis
- * @param {Object} zapRequest - NIP-57 zap request object
- * @returns {Promise<string>} BOLT11 invoice
- * @throws {Error} If invoice creation fails
- */
-async function createZapInvoice(metadata, amount, zapRequest) {
-  const lightningAddress = metadata.lud16 || metadata?.lightning;
-  if (!lightningAddress) {
-    throw new Error('No lightning address found');
+async function loadLinkPreviews() {
+  // First handle regular link previews (keep existing code)
+  const links = document.querySelectorAll('.message-text a');
+  const mediaLinks = Array.from(links).filter(link => {
+    const content = link.href || link.textContent;
+    return content.includes('youtube.com') || 
+           content.includes('youtu.be') ||
+           content.includes('twitter.com') ||
+           content.includes('x.com') ||
+           content.includes('twitch.tv') ||
+           content.includes('instagram.com') ||
+           content.includes('tiktok.com') ||
+           content.includes('iris.to') ||
+           // Match both direct identifiers and nostr: protocol
+           content.match(/(?:nostr:)?(?:note|nevent|npub|nprofile|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+/);
+  });
+
+  for (const link of mediaLinks) {
+    try {
+      const url = link.href;
+      if (link.nextElementSibling?.classList.contains('link-preview')) continue;
+
+      const previewContainer = document.createElement('div');
+      previewContainer.className = 'link-preview';
+      const previewContent = document.createElement('div');
+      previewContent.className = 'link-preview-content';
+
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        const videoId = url.includes('youtube.com') ? 
+          url.split('v=')[1]?.split('&')[0] : 
+          url.split('youtu.be/')[1]?.split('?')[0];
+          
+        if (videoId) {
+          previewContent.innerHTML = `
+            <div class="video-preview">
+              <iframe width="100%" height="200" 
+                src="https://www.youtube.com/embed/${videoId}" 
+                frameborder="0" allowfullscreen>
+              </iframe>
+            </div>`;
+        }
+      } else if (url.includes('twitch.tv')) {
+        const channelName = url.split('twitch.tv/')[1]?.split('/')[0];
+        if (channelName) {
+          previewContent.innerHTML = `
+            <div class="stream-embed">
+              <iframe
+                src="https://player.twitch.tv/?channel=${channelName}&parent=${location.hostname}&muted=true"
+                height="300"
+                width="100%"
+                allowfullscreen="true"
+                frameborder="0">
+              </iframe>
+            </div>`;
+        }
+      } else if (url.includes('twitter.com') || url.includes('x.com')) {
+        const tweetId = url.split('/status/')[1]?.split('?')[0];
+        if (tweetId) {
+          previewContent.innerHTML = `
+            <div class="social-preview">
+              <iframe width="100%" 
+                src="https://platform.twitter.com/embed/Tweet.html?id=${tweetId}" 
+                frameborder="0">
+              </iframe>
+            </div>`;
+        }
+      } else if (url.includes('iris.to')) {
+        // Handle iris.to links
+        const npubMatch = url.match(/npub1[a-zA-Z0-9]+/);
+        if (npubMatch) {
+          try {
+            const pubkey = NostrTools.nip19.decode(npubMatch[0]).data;
+            const metadata = await getUserMetadata(pubkey);
+            previewContent.innerHTML = `
+              <div class="nostr-preview">
+                <div class="nostr-author">
+                  <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Avatar" class="avatar">
+                  <span>${metadata?.name || metadata?.displayName || shortenIdentifier(pubkey)}</span>
+                </div>
+                ${metadata?.about ? `<div class="nostr-content">${metadata.about}</div>` : ''}
+              </div>`;
+          } catch (error) {
+            console.warn('Failed to decode iris.to npub:', error);
+          }
+        }
+      } else if (url.match(/(?:nostr:)?(?:note|nevent|npub|nprofile|naddr)1/) || url.match(/^(?:note|nevent|npub|nprofile|naddr)1/)) {
+        // Handle both direct identifiers and nostr: protocol
+        const nostrId = url.includes('nostr:') ? 
+          url.split('nostr:')[1] : 
+          (url.match(/(?:note|nevent|npub|nprofile|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+/)?.[0] || url);
+
+        try {
+          const decoded = NostrTools.nip19.decode(nostrId);
+          if (decoded.type === 'note' || decoded.type === 'nevent') {
+            const eventId = decoded.type === 'note' ? decoded.data : decoded.data.id;
+            const event = await pool.get(RELAYS, { ids: [eventId] });
+            if (event) {
+              const metadata = await getUserMetadata(event.pubkey);
+              previewContent.innerHTML = `
+                <div class="nostr-preview">
+                  <div class="nostr-author">
+                    <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Avatar" class="avatar">
+                    <span>${metadata?.name || metadata?.displayName || shortenIdentifier(event.pubkey)}</span>
+                  </div>
+                  <div class="nostr-content">${event.content}</div>
+                </div>`;
+            }
+          } else if (decoded.type === 'npub' || decoded.type === 'nprofile') {
+            const pubkey = decoded.type === 'npub' ? decoded.data : decoded.data.pubkey;
+            const metadata = await getUserMetadata(pubkey);
+            previewContent.innerHTML = `
+              <div class="nostr-preview">
+                <div class="nostr-author">
+                  <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Avatar" class="avatar">
+                  <span>${metadata?.name || metadata?.displayName || shortenIdentifier(pubkey)}</span>
+                </div>
+                ${metadata?.about ? `<div class="nostr-content">${metadata.about}</div>` : ''}
+              </div>`;
+          }
+        } catch (error) {
+          console.warn('Failed to decode nostr link:', error);
+        }
+
+      }
+
+      if (previewContent.innerHTML) {
+        previewContainer.appendChild(previewContent);
+        link.parentNode.insertBefore(previewContainer, link.nextSibling);
+      }
+    } catch (error) {
+      console.warn('Failed to create media preview:', error);
+    }
   }
 
+  // Then handle raw nostr identifiers
+  const messageTexts = document.querySelectorAll('.message-text');
+  for (const messageText of messageTexts) {
+    await handleRawNostrIdentifiers(messageText);
+  }
+}
+
+async function showZapModal(message, metadata, zapContainer) {
+  const modal = document.createElement('div');
+  modal.className = 'modal zap-modal';
+  
+  modal.innerHTML = `
+    <div class="modal-content zap-modal-content">
+      <h3>Send Zap</h3>
+      <div class="zap-input-container">
+        <input type="number" id="zapAmount" min="1" value="100" />
+      </div>
+      <pre id="zapError" class="error-message" style="display: none; margin: 10px 0; padding: 10px; background: rgba(255,0,0,0.1); border-radius: 4px; white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;"></pre>
+      <div class="button-container">
+        <button id="sendZapButton" class="primary-button">Send Zap</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const sendButton = modal.querySelector('#sendZapButton');
+  const amountInput = modal.querySelector('#zapAmount');
+  const errorDiv = modal.querySelector('#zapError');
+
+  sendButton.addEventListener('click', async () => {
+    const amount = parseInt(amountInput.value);
+    if (amount > 0) {
+      try {
+        errorDiv.style.display = 'none';
+        sendButton.disabled = true;
+        sendButton.textContent = 'Processing...';
+
+        const response = await chrome.runtime.sendMessage({
+          type: 'GET_ZAP_INVOICE',
+          data: {
+            lightningAddress: metadata.lud16 || metadata?.lightning,
+            amount,
+            zapRequest: {
+              kind: 9734,
+              pubkey: (await auth.getCurrentUser()).pubkey,
+              created_at: Math.floor(Date.now() / 1000),
+              content: "Zapped a DM",
+              tags: [
+                ['p', message.pubkey],
+                ['e', message.id],
+                ['amount', amount.toString()],
+                ['relays', ...RELAYS]
+              ]
+            }
+          }
+        });
+
+        if (response.error) {
+          errorDiv.textContent = `Error Details:\n${response.error}`;
+          errorDiv.style.display = 'block';
+          throw new Error(response.error);
+        }
+
+        await showQRModal(response.invoice);
+        modal.remove();
+      } catch (error) {
+        console.error('Zap failed:', error);
+        errorDiv.textContent = `Error Details:\n${error.message}`;
+        errorDiv.style.display = 'block';
+        sendButton.disabled = false;
+        sendButton.textContent = 'Send';
+      }
+    }
+  });
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+}
+
+async function handleZap(message, metadata, amount, zapContainer) {
   try {
-    console.debug('Creating zap invoice for:', lightningAddress);
-    
+    const currentUser = await auth.getCurrentUser();
+    const zapRequest = {
+      kind: 9734,
+      pubkey: currentUser.pubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "Zapped a DM",
+      tags: [
+        ['p', message.pubkey],
+        ['e', message.id],
+        ['amount', amount.toString()],
+        ['relays', ...RELAYS]
+      ]
+    };
+
+    const invoice = await createZapInvoice(metadata, amount, zapRequest);
+    await showQRModal(invoice);
+
+  } catch (error) {
+    console.error('Zap failed:', error);
+    showErrorMessage(error.message);
+  }
+}
+
+async function createZapInvoice(metadata, amount, zapRequest) {
+  const lightningAddress = metadata.lud16 || metadata?.lightning;
+  if (!lightningAddress) throw new Error('No lightning address found');
+
+  try {
+    // Send request to background script to handle LNURL fetching
     const response = await chrome.runtime.sendMessage({
       type: 'GET_ZAP_INVOICE',
       data: {
@@ -1052,7 +1308,7 @@ async function createZapInvoice(metadata, amount, zapRequest) {
     });
 
     if (!response) {
-      throw new Error('No response from lightning service');
+      throw new Error('No response received from background script');
     }
 
     if (response.error) {
@@ -1060,83 +1316,75 @@ async function createZapInvoice(metadata, amount, zapRequest) {
     }
 
     if (!response.invoice) {
-      throw new Error('No invoice received');
+      throw new Error('No invoice in response');
     }
 
     return response.invoice;
-
   } catch (error) {
-    console.debug('Failed to create invoice:', error);
-    if (error.message.includes('404')) {
-      throw new Error('Lightning address not found or invalid');
-    }
-    if (error.message.includes('500')) {
-      throw new Error('Lightning service is temporarily unavailable');
-    }
-    throw error;
+    console.error('Failed to create invoice:', error);
+    throw error; // Pass through the original error instead of wrapping it
   }
 }
 
 async function showQRModal(invoice) {
-  try {
-    const modal = document.createElement('div');
-    modal.className = 'qr-modal';
-    
-    modal.innerHTML = `
-      <div class="qr-modal-content">
-        <div class="qr-container">
-          <div id="qrcode-container"></div>
-          <div class="invoice-text">${invoice}</div>
-          <div class="modal-buttons">
-            <button class="copy-button">Copy Invoice</button>
-            <button class="close-button">Close</button>
-          </div>
+  const modal = document.createElement('div');
+  modal.className = 'qr-modal';
+  
+  modal.innerHTML = `
+    <div class="qr-modal-content">
+      <div class="qr-container">
+        <div id="qrcode-container"></div>
+        <div class="invoice-text">${invoice}</div>
+        <div class="modal-buttons">
+          <button class="copy-button">Copy Invoice</button>
+          <button class="close-button">Close</button>
         </div>
       </div>
-    `;
-    
-    document.body.appendChild(modal);
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
 
-    // Generate QR code
-    const qr = qrcode(0, "M");
-    qr.addData(`lightning:${invoice}`);
-    qr.make();
-    
-    const qrContainer = modal.querySelector('#qrcode-container');
-    qrContainer.innerHTML = qr.createImgTag(4);
-    
-    const copyButton = modal.querySelector('.copy-button');
-    const closeButton = modal.querySelector('.close-button');
-    
-    copyButton.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(invoice);
-        copyButton.textContent = 'Copied!';
-        copyButton.classList.add('copied');
-        
-        setTimeout(() => {
-          copyButton.textContent = 'Copy Invoice';
-          copyButton.classList.remove('copied');
-        }, 2000);
-      } catch (error) {
-        console.error('Failed to copy invoice:', error);
-        showError('Failed to copy invoice');
-      }
-    });
-    
-    closeButton.addEventListener('click', () => {
-      modal.remove();
-    });
-    
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
-  } catch (error) {
-    console.debug('Failed to show QR modal:', error);
-    throw error;
+  // Use the global qrcode object
+  if (typeof window.qrcode === 'undefined') {
+    throw new Error('QR code library not loaded');
   }
+  
+  const qr = qrcode(0, "M");
+  qr.addData(`lightning:${invoice}`);
+  qr.make();
+  
+  const qrContainer = modal.querySelector('#qrcode-container');
+  qrContainer.innerHTML = qr.createImgTag(4);
+  
+  const copyButton = modal.querySelector('.copy-button');
+  const closeButton = modal.querySelector('.close-button');
+  
+  copyButton.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(invoice);
+      copyButton.textContent = 'Copied!';
+      copyButton.classList.add('copied');
+      
+      setTimeout(() => {
+        copyButton.textContent = 'Copy Invoice';
+        copyButton.classList.remove('copied');
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy invoice:', error);
+      showErrorMessage('Failed to copy invoice');
+    }
+  });
+  
+  closeButton.addEventListener('click', () => {
+    modal.remove();
+  });
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
 }
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -1164,15 +1412,7 @@ function updateZapAmount(messageId, amount) {
 }
 
 function hasLightningAddress(metadata) {
-  // Check for either lud16 (Lightning address) or lightning (LNURL) field
-  const address = metadata?.lud16 || metadata?.lightning;
-  if (!address) return false;
-  
-  // Validate format in correct order
-  return address.includes('@') || // Lightning address (e.g., yvette@lnaddress.com)
-         address.toLowerCase().startsWith('lnurl') || // LNURL format
-         address.toLowerCase().startsWith('https://') || // Direct HTTPS URL
-         address.toLowerCase().startsWith('http://'); // Direct HTTP URL (fallback)
+  return !!(metadata?.lud16 || metadata?.lightning);
 }
 
 // Function to load search history
@@ -1255,11 +1495,6 @@ async function fetchMessages(pubkey) {
   }
 }
 
-/**
- * Process and display Nostr link previews
- * @param {string} url - Nostr URL or identifier
- * @returns {Promise<string|null>} HTML preview content
- */
 async function handleNostrLink(url) {
   // Import pool from shared
   const { pool, RELAYS } = await import('./shared.js');
@@ -1349,196 +1584,19 @@ async function handleRawNostrIdentifiers(messageText) {
   }
 }
 
-async function decryptMessage(event) {
-  try {
-    const currentUser = await auth.getCurrentUser();
-    const privateKey = await auth.getPrivateKey();
+// Add message listener for incoming messages
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'NEW_MESSAGE') {
+    const { pubkey, created_at } = message.data;
     
-    if (!privateKey || !event?.content) {
-      return null;
+    // Update last message time and re-render contact list
+    contactManager.updateLastMessageTime(pubkey, created_at);
+    renderContactList(Array.from(contactManager.contacts.values()));
+    
+    // If this is the current chat, render the new message
+    if (currentChatPubkey === pubkey) {
+      renderMessages(messageManager.fetchMessages(pubkey));
     }
-
-    // Skip invalid messages
-    if (typeof event.content !== 'string' || !event.tags) {
-      return null;
-    }
-
-    let decrypted;
-    const isSender = event.pubkey === currentUser.pubkey;
-    const recipientPubkey = isSender ? event.tags.find(tag => tag[0] === 'p')?.[1] : event.pubkey;
-
-    if (!recipientPubkey) {
-      return null;
-    }
-
-    try {
-      if (privateKey === window.nostr) {
-        decrypted = await window.nostr.nip04.decrypt(
-          isSender ? recipientPubkey : event.pubkey,
-          event.content
-        );
-      } else {
-        decrypted = await NostrTools.nip04.decrypt(
-          privateKey,
-          isSender ? recipientPubkey : event.pubkey,
-          event.content
-        );
-      }
-
-      if (!decrypted) {
-        return null;
-      }
-
-      return decrypted;
-    } catch (decryptError) {
-      // Silently ignore decryption errors
-      console.debug('Message decryption failed:', decryptError);
-      return null;
-    }
-  } catch (error) {
-    // Silently log decryption errors as debug
-    console.debug('Message decryption failed:', error);
-    return null;
   }
-}
-
-/**
- * Process message content for link previews
- * @param {HTMLElement} messageElement - Message container element
- * @returns {Promise<void>}
- */
-async function handleMessagePreview(messageElement) {
-  try {
-    const content = messageElement.textContent;
-    if (!content) return;
-
-    // Process message content for previews
-    const nostrIds = content.match(
-      /(?:nostr:)?(?:note|nevent|npub|nprofile|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+/g
-    );
-
-    if (!nostrIds) return;
-
-    for (const id of nostrIds) {
-      // Skip if preview already exists
-      if (messageElement.querySelector(`[data-nostr-id="${id}"]`)) {
-        continue;
-      }
-
-      try {
-        const previewContent = await generateNostrPreview(id);
-        if (previewContent) {
-          const previewElement = document.createElement('div');
-          previewElement.className = 'link-preview';
-          previewElement.setAttribute('data-nostr-id', id);
-          previewElement.innerHTML = previewContent;
-          messageElement.appendChild(previewElement);
-        }
-      } catch (previewError) {
-        console.debug('Preview generation failed:', previewError);
-        // Continue with other previews
-      }
-    }
-  } catch (error) {
-    console.debug('Message preview processing failed:', error);
-  }
-}
-
-/**
- * Generate a Lightning payment URL
- * @param {Object} contact - Contact metadata with lightning info
- * @param {number} amount - Payment amount in millisatoshis
- * @param {Object} zapRequest - NIP-57 zap request details
- * @returns {Promise<string>} BOLT11 invoice
- * @throws {Error} If invoice generation fails
- */
-async function getLightningUrl(contact, amount, zapRequest) {
-  const lightningAddress = contact.lud16 || contact?.lightning;
-  if (!lightningAddress) {
-    throw new Error('No lightning address found');
-  }
-
-  try {
-    console.log('Creating zap invoice for:', lightningAddress);
-    const response = await chrome.runtime.sendMessage({
-      type: 'GET_ZAP_INVOICE',
-      data: {
-        lightningAddress,
-        amount,
-        zapRequest
-      }
-    });
-
-    if (!response) {
-      throw new Error('No response from lightning service');
-    }
-
-    if (response.error) {
-      if (response.error.includes('500')) {
-        throw new Error('Lightning service is currently unavailable. Please try again later.');
-      }
-      throw new Error(response.error);
-    }
-
-    if (!response.invoice) {
-      throw new Error('Invalid invoice response format');
-    }
-
-    return response.invoice;
-  } catch (error) {
-    console.error('Failed to create invoice:', error);
-    if (error.message.includes('500')) {
-      throw new Error('Lightning service is currently unavailable. Please try again later.');
-    }
-    throw new Error(error.message || 'Could not generate Lightning invoice');
-  }
-}
-
-function showError(message) {
-  // Check if this is an expected error that shouldn't be shown in extension errors
-  const isExpectedError = 
-    message.includes('padding') || // Decryption errors
-    message.includes('Service unavailable') || // Zap service errors
-    message.includes('Failed to decrypt message') || // Decryption errors
-    message.includes('Invalid invoice response format') || // Zap errors
-    message.includes('Service does not support zaps') || // Zap support errors
-    message.includes('Lightning service is temporarily unavailable') || // Lightning service errors
-    message.includes('Zap invoice error'); // General zap errors
-
-  if (isExpectedError) {
-    // Log expected errors as debug only
-    console.debug('Expected error:', message);
-    return;
-  }
-
-  // Only show unexpected errors in the extension's error section
-  const errorMessage = document.getElementById('errorMessage');
-  if (!errorMessage) {
-    const div = document.createElement('div');
-    div.id = 'errorMessage';
-    div.className = 'error-message';
-    document.body.appendChild(div);
-  }
-
-  console.error('Extension error:', message);
-  
-  const formattedMessage = message.includes('500') ? 
-    'Lightning service is temporarily unavailable. Please try again later.' :
-    message.includes('padding') ?
-    'Unable to decrypt message. The message may be corrupted.' :
-    message;
-
-  errorMessage.textContent = formattedMessage;
-  errorMessage.style.display = 'block';
-  
-  // Add animation class
-  errorMessage.classList.add('show');
-  
-  setTimeout(() => {
-    errorMessage.classList.remove('show');
-    setTimeout(() => {
-      errorMessage.style.display = 'none';
-    }, 300); // Match this with CSS transition duration
-  }, 3000);
-}
+});
 

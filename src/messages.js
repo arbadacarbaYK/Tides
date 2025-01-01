@@ -48,7 +48,9 @@ export class MessageManager {
         });
       }
 
+      console.log('Fetching messages with filters:', filters);
       const events = await this.pool.list(connectedRelays, filters);
+      console.log(`Found ${events.length} messages for ${pubkey}`);
 
       // Process and decrypt messages
       const messages = await Promise.all(
@@ -63,13 +65,15 @@ export class MessageManager {
               id: event.id,
               pubkey: event.pubkey,
               content: decrypted,
-              timestamp: event.created_at * 1000,
+              created_at: event.created_at,
               tags: event.tags
             };
           })
       );
 
-      return messages.filter(Boolean);
+      const validMessages = messages.filter(Boolean);
+      console.log(`Decrypted ${validMessages.length} valid messages for ${pubkey}`);
+      return validMessages;
     } catch (err) {
       console.error('Error fetching messages:', err);
       throw err;
@@ -98,22 +102,35 @@ export class MessageManager {
       }
 
       // Handle different encryption methods
-      if (privateKey === window.nostr) {
-        decrypted = await window.nostr.nip04.decrypt(
-          isSent ? recipientPubkey : event.pubkey,
-          event.content
-        );
-      } else {
-        decrypted = await NostrTools.nip04.decrypt(
-          privateKey,
-          isSent ? recipientPubkey : event.pubkey,
-          event.content
-        );
+      try {
+        if (privateKey === window.nostr) {
+          decrypted = await window.nostr.nip04.decrypt(
+            isSent ? recipientPubkey : event.pubkey,
+            event.content
+          );
+        } else {
+          decrypted = await NostrTools.nip04.decrypt(
+            privateKey,
+            isSent ? recipientPubkey : event.pubkey,
+            event.content
+          );
+        }
+      } catch (decryptError) {
+        // Silently handle padding errors
+        if (decryptError.message?.includes('padding')) {
+          return null;
+        }
+        // For other decryption errors, log but don't throw
+        console.debug('Message decryption failed:', decryptError.message);
+        return null;
       }
 
       return decrypted;
     } catch (err) {
-      console.error('Failed to decrypt message:', err);
+      // Only log critical errors that aren't related to decryption
+      if (!err.message?.includes('padding')) {
+        console.error('Critical message handling error:', err);
+      }
       return null;
     }
   }
@@ -214,16 +231,6 @@ export class MessageManager {
     } catch (error) {
       this.messageCache.delete(messageKey);
       throw error;
-    }
-  }
-
-  async hasMessages(pubkey) {
-    try {
-      const messages = await this.fetchMessages(pubkey);
-      return messages && messages.length > 0;
-    } catch (error) {
-      console.warn(`Failed to check messages for ${pubkey}:`, error);
-      return false;
     }
   }
 }
