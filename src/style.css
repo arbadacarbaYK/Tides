@@ -361,9 +361,10 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 20px;
   background: var(--input-background);
-  color: var(--text-color);
+  color: #000000;
   font-size: 14px;
   transition: border-color 0.3s ease;
+  -webkit-text-security: disc;
 }
 
 #nsecInput:focus {
@@ -402,12 +403,13 @@ body {
 #nsecInput::placeholder {
   font-family: var(--main-font);
   color: var(--input-placeholder);
+  text-align: center;
 }
 
 #loginScreen img {
   width: 120px;
   height: auto;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 /* Loading indicator */
@@ -1068,6 +1070,11 @@ emoji-picker {
   justify-content: center;
   height: 100%;
   width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--background-color);
+  z-index: 1000;
 }
 
 .chat-loading-spinner .spinner {

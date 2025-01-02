@@ -149,3 +149,26 @@ export function validateNsec(nsec) {
     return false;
   }
 }
+
+/**
+ * @file utils.js
+ * @description Utility functions for Nostr operations
+ * 
+ * Core utilities:
+ * - Identifier conversion (npub/pubkey)
+ * - Credential format generation
+ * - Event validation
+ * - Sound management
+ * - Storage operations
+ * - Backoff strategies
+ * 
+ * Components:
+ * - SoundManager: Handles notification sounds
+ * - Credential utilities: Format conversion and validation
+ * - Storage helpers: Chrome storage operations
+ * 
+ * @example
+ * const npub = pubkeyToNpub(pubkey);
+ * const isValid = validateEvent(event);
+ * await soundManager.play('message');
+ */

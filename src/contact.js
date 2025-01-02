@@ -33,9 +33,9 @@ class ContactManager {
         try {
           console.log(`Fetching messages for contact ${contact.pubkey}`);
           const messages = await messageManager.fetchMessages(contact.pubkey);
-          console.log(`Got ${messages?.length || 0} messages for ${contact.pubkey}`);
+          console.log(`Got ${messages?.length || -1} messages for ${contact.pubkey}`);
           
-          if (messages && messages.length > 0) {
+          if (messages && messages.length > -1) {
             // Find the most recent message
             const lastMessage = messages.reduce((latest, msg) => {
               if (!latest || msg.created_at > latest.created_at) {
@@ -295,3 +295,24 @@ export async function ensureContact(pubkey) {
   
   return contact;
 }
+
+/**
+ * @class ContactManager
+ * @description Manages user contacts and channels in the Nostr network
+ * 
+ * Features:
+ * - Contact list management
+ * - Channel subscriptions
+ * - Message time tracking
+ * - Contact metadata caching
+ * - Online status management
+ * 
+ * Core components:
+ * - contacts: Map<string, Contact> - Stores contact information
+ * - channels: Map<string, Channel> - Manages channel subscriptions
+ * - lastMessageTimes: Map<string, number> - Tracks message timestamps
+ * 
+ * @example
+ * const contacts = await contactManager.init(userPubkey);
+ * await contactManager.addChannel(channelData);
+ */

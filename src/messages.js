@@ -240,3 +240,25 @@ export const sendMessage = messageManager.sendMessage.bind(messageManager);
 export const receiveMessage = messageManager.handleIncomingMessage.bind(messageManager);
 export const fetchMessages = messageManager.fetchMessages.bind(messageManager);
 
+/**
+ * @class MessageManager
+ * @description Handles all message-related operations in the Nostr network
+ * 
+ * Core functionalities:
+ * - Message encryption/decryption (NIP-04)
+ * - Message caching
+ * - Relay pool management
+ * - Subscription handling
+ * 
+ * Message flow:
+ * 1. Message composition
+ * 2. Encryption
+ * 3. Relay publishing
+ * 4. Subscription management
+ * 5. Decryption
+ * 6. UI updates
+ * 
+ * @example
+ * await messageManager.sendMessage(recipientPubkey, content);
+ * const messages = await messageManager.fetchMessages(pubkey);
+ */

@@ -66,3 +66,22 @@ export class RelayPool {
 }
 
 export const relayPool = new RelayPool();
+
+/**
+ * @file shared.js
+ * @description Core shared utilities and constants for Nostr operations
+ * 
+ * Exports:
+ * - nostrCore: Core Nostr functionality
+ * - pool: SimplePool instance for relay management
+ * - RELAYS: Default relay list
+ * - RelayPool: Custom relay pool management
+ * 
+ * Utility functions:
+ * - shortenIdentifier(): Formats long identifiers
+ * - pubkeyToNpub(): Converts pubkeys to npub format
+ * 
+ * @example
+ * await relayPool.ensureConnection();
+ * const npub = pubkeyToNpub(pubkey);
+ */

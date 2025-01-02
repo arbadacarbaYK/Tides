@@ -720,3 +720,24 @@ async function getInvoice(callbackUrl, maxRetries = 3) {
 
   throw new Error(`Failed to get invoice after ${maxRetries} attempts. Last error: ${lastError?.message}`);
 }
+
+/**
+ * @file background.js
+ * @description Chrome Extension Service Worker for Nostr messaging
+ * 
+ * Core functionalities:
+ * - Message handling and decryption
+ * - Sound management for notifications
+ * - Contact state management
+ * - Authentication persistence
+ * - Lightning address processing
+ * - Invoice generation and handling
+ * 
+ * Components:
+ * - nostrCore: Core Nostr functionality wrapper
+ * - soundManager: Audio notification system
+ * - messageManager: Message processing and caching
+ * - auth: Authentication state handler
+ * 
+ * @note Uses IIFE pattern for extension compatibility
+ */

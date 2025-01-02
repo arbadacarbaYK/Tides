@@ -123,3 +123,23 @@ async function fetchMetadataFromRelay(pubkey) {
 }
 
 export { fetchMetadataFromRelay };
+
+/**
+ * @file userMetadata.js
+ * @description User metadata management system
+ * 
+ * Features:
+ * - Metadata caching
+ * - Relay fetching
+ * - Queue management
+ * - Validation
+ * 
+ * Cache strategy:
+ * - 1 hour TTL for cached metadata
+ * - Queue-based fetch system
+ * - Fallback to default values
+ * 
+ * @example
+ * const metadata = await getUserMetadata(pubkey);
+ * await storeMetadata(pubkey, metadata);
+ */

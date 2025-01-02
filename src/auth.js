@@ -154,3 +154,21 @@ class Auth {
 
 const auth = new Auth();
 export { auth };
+
+/**
+ * @class Auth
+ * @description Authentication manager for Nostr login handling
+ * Supports both NIP-07 (browser extension) and NSEC (private key) login methods
+ * Manages user credentials storage and retrieval
+ * 
+ * Key features:
+ * - Secure credential storage
+ * - Multiple login methods
+ * - User metadata initialization
+ * - Private key management
+ * 
+ * @example
+ * const user = await auth.login('NIP-07');
+ * // or
+ * const user = await auth.login('NSEC', nsecString);
+ */

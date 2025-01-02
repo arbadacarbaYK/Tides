@@ -20,3 +20,18 @@ export function handleError(error, context) {
     { originalError: error }
   );
 } 
+
+/**
+ * @file errors.js
+ * @description Custom error handling system for Nostr operations
+ * 
+ * Features:
+ * - Custom NostrError class with error codes
+ * - Standardized error handling
+ * - Detailed error context preservation
+ * - Error logging with context
+ * 
+ * Usage:
+ * throw new NostrError('Failed to decrypt', 'DECRYPT_ERROR', { event });
+ * handleError(error, 'Message Processing');
+ */

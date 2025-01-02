@@ -11,6 +11,17 @@ import 'emoji-picker-element';
 import { searchGifs, getTrendingGifs } from './services/giphy.js';
 import { RELAYS } from './shared.js';
 import qrcode from 'qrcode';
+
+/**
+ * Global state variables for managing UI interactions and message handling
+ * @type {string|null} currentChatPubkey - Currently selected chat pubkey
+ * @type {Function|null} emojiButtonListener - Event listener for emoji picker
+ * @type {Function|null} emojiPickerListener - Event listener for emoji selection
+ * @type {boolean} hasPlayedLoginSound - Track login sound playback
+ * @type {number} lastMessageTimestamp - Most recent message timestamp
+ * @type {Array} searchHistory - User's search term history
+ */
+
 let currentChatPubkey = null;
 let emojiButtonListener;
 let emojiPickerListener;
@@ -89,6 +100,10 @@ function initializeGifButton() {
   });
 }
 
+/**
+ * Manages the visibility and state of the login screen
+ * Hides main container and shows login form while keeping header visible
+ */
 function showLoginScreen() {
   const loginScreen = document.getElementById('loginScreen');
   const mainContainer = document.getElementById('mainContainer');
@@ -100,6 +115,13 @@ function showLoginScreen() {
   document.getElementById('userInfo').style.visibility = 'hidden';
 }
 
+/**
+ * Initializes the extension's user interface
+ * - Sets up search functionality
+ * - Initializes input handlers
+ * - Manages login screen state
+ * - Sets up event listeners for user interactions
+ */
 async function initializeUI() {
   const loginScreen = document.getElementById('loginScreen');
   const mainContainer = document.getElementById('mainContainer');
@@ -174,6 +196,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+/**
+ * Loads user-specific data after successful authentication
+ * - Fetches and displays contacts
+ * - Loads user metadata
+ * - Updates UI with user information
+ */
 async function handleSuccessfulLogin(user) {
   try {
     document.getElementById('loadingIndicator').style.display = 'block';
@@ -205,10 +233,20 @@ async function handleSuccessfulLogin(user) {
   }
 }
 
+/**
+ * Handles sound effects for successful login
+ * Uses soundManager utility for consistent audio playback
+ */
 function playLoginSound() {
   soundManager.play('login', true);
 }
 
+/**
+ * Processes user login attempts
+ * - Validates nsec key input
+ * - Authenticates user
+ * - Handles success/failure states
+ */
 document.getElementById('loginButton').addEventListener('click', async () => {
   const nsecInput = document.getElementById('nsecInput').value.trim();
   
@@ -232,6 +270,12 @@ document.getElementById('loginButton').addEventListener('click', async () => {
   }
 });
 
+/**
+ * Loads user-specific data after successful authentication
+ * - Fetches and displays contacts
+ * - Loads user metadata
+ * - Updates UI with user information
+ */
 async function loadUserData(user) {
   const loadingIndicator = document.getElementById('loadingIndicator');
   try {
@@ -275,6 +319,12 @@ function showErrorMessage(message) {
   }, 3000);
 }
 
+/**
+ * Processes incoming messages
+ * - Shows desktop notifications
+ * - Plays notification sounds
+ * - Updates UI with new messages
+ */
 function handleNewMessage(message) {
   const contact = getContact(message.pubkey);
   const notification = new Notification(
@@ -1600,3 +1650,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+/**
+ * @file popup.js
+ * @description Main UI controller for the Nostr Messenger Chrome Extension
+ * 
+ * Core features:
+ * - User authentication and login flow
+ * - Contact list management and display
+ * - Chat interface and message handling
+ * - Stream/channel integration
+ * - Search functionality
+ * - UI state management
+ * 
+ * UI Components:
+ * - Login screen with NIP-07/NSEC support
+ * - Contact list with search
+ * - Chat interface with emoji/GIF support
+ * - Message preview system
+ * - Stream embedding
+ * 
+ * State Management:
+ * - Current chat tracking
+ * - Message timestamps
+ * - Search history
+ * - UI element listeners
+ * 
+ * @requires auth
+ * @requires contactManager
+ * @requires messageManager
+ * @requires userMetadata
+ */
