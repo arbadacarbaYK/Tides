@@ -601,12 +601,14 @@ async function initializeChat(pubkey) {
   
   // Show loading spinner
   chatContainer.innerHTML = `
-    <div class="message-list">
-      <div class="chat-loading-spinner">
-        <div class="spinner"></div>
+    <div class="message-container">
+      <div class="message-list">
+        <div class="chat-loading-spinner">
+          <div class="spinner"></div>
+        </div>
       </div>
     </div>`;
-  
+    
   const messages = await messageManager.fetchMessages(pubkey);
   if (messages && messages.length > 0) {
     // Update last message time for the contact
@@ -723,11 +725,6 @@ async function renderMessages(messages) {
   // Call loadLinkPreviews after messages are rendered
   await loadLinkPreviews();
   
-  // Scroll to bottom
-  const lastMessage = messageList.lastElementChild;
-  if (lastMessage) {
-    lastMessage.scrollIntoView({ block: 'end', inline: 'nearest' });
-  }
 }
 
 function renderStreamContent(channel) {
@@ -847,15 +844,15 @@ async function sendMessage() {
       // Add link preview handling for new messages
       setTimeout(() => loadLinkPreviews(), 100);
     }
+
+    if (messageList.innerHTML == '<div class="no-messages">No messages yet</div>')
+    {
+      messageList.innerHTML = '';
+    }
     
     messageElement.appendChild(bubbleElement);
     messageList.appendChild(messageElement);
     messageElement.scrollIntoView({ behavior: 'smooth' });
-    
-    // Ensure proper scrolling after sending
-    setTimeout(() => {
-      messageList.scrollTop = messageList.scrollHeight;
-    }, 100);
     
     const result = await messageManager.sendMessage(currentChatPubkey, content);
     
@@ -903,17 +900,7 @@ async function renderMessageContent(message, bubbleElement) {
       <div class="media-container">
         <img src="${content}" class="message-media" loading="lazy">
       </div>`;
-    
-    // Add load event listener to update scroll position
-    const img = bubbleElement.querySelector('img');
-    if (img) {
-      img.addEventListener('load', () => {
-        const messageList = document.querySelector('.message-list');
-        if (messageList) {
-          messageList.scrollTop = messageList.scrollHeight;
-        }
-      });
-    }
+
     return;
   }
 
