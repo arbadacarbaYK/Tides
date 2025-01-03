@@ -48,7 +48,7 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 
 1. Clone the repository:
 ```
-git clone https://github.com/yourusername/tides.git
+git clone https://github.com/arbadacarbaYK/tides.git
 cd tides
 ```
 
