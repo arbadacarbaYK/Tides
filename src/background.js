@@ -11,11 +11,13 @@ var Background = (function(NostrTools) {
 
   const pool = new NostrTools.SimplePool();
   const RELAYS = [
-    "wss://relay.damus.io",
-    "wss://relay.nostr.band",
-    "wss://nos.lol",
-    "wss://relay.snort.social",
-    "wss://nostr.wine"
+    'wss://relay.damus.io',
+    'wss://relay.nostr.band',
+    'wss://nos.lol',
+    'wss://relay.snort.social',
+    'wss://nostr.wine',
+    'wss://nostr.noderunners.network',
+    'wss://nostr.einundzwanzig.space'
   ];
 
   // Utils

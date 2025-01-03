@@ -21,7 +21,9 @@ export const RELAYS = [
   'wss://relay.nostr.band',
   'wss://nos.lol',
   'wss://relay.snort.social',
-  'wss://nostr.wine'
+  'wss://nostr.wine',
+  'wss://nostr.noderunners.network',
+  'wss://nostr.einundzwanzig.space'
 ];
 
 // Utility functions
