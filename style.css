@@ -681,7 +681,7 @@ emoji-picker {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.9);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -691,63 +691,46 @@ emoji-picker {
 .zap-modal-content {
   background: var(--background-color);
   padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   position: relative;
-  width: 140px;
+  width: 180px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.zap-error {
-  background: rgba(255, 0, 0, 0.1);
-  border: 1px solid rgba(255, 0, 0, 0.2);
-  padding: 8px;
-  border-radius: 4px;
-  margin: 10px 0;
-  word-break: break-word;
-}
-
-.zap-modal .amount-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.zap-modal .amount-button {
-  padding: 8px 16px;
+.zap-modal input[type="text"],
+.zap-modal input[type="number"] {
+  width: 140px;
+  height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
   border-radius: 20px;
-  border: 1px solid #FFB300;
-  background: transparent;
-  color: #FFB300;
+  background: var(--input-background);
+  color: var(--input-text);
+  font-size: 14px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.zap-modal button {
+  width: 140px;
+  height: 40px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 20px;
+  background: var(--button-background);
+  color: var(--button-text);
   cursor: pointer;
-  transition: all 0.2s ease;
+  font-size: 14px;
+  transition: background-color 0.2s;
+  white-space: nowrap;
 }
 
-.zap-modal .amount-button:hover {
-  background: #FFB300;
-  color: black;
-}
-
-.zap-modal .slider-container {
-  width: 100%;
-  padding: 8px 0;
-}
-
-.zap-modal input[type="range"] {
-  width: 100%;
-  accent-color: #FFB300;
-}
-
-@keyframes zapSent {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.5); }
-  100% { transform: scale(1); }
-}
-
-.zap-sent {
-  animation: zapSent 0.5s ease;
+.zap-modal button:hover {
+  background: var(--hover-color);
 }
 
 .qr-modal {
@@ -756,7 +739,7 @@ emoji-picker {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.9);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -765,8 +748,8 @@ emoji-picker {
 
 .qr-modal-content {
   background: var(--background-color);
-  padding: 12px;
-  border-radius: 8px;
+  padding: 20px;
+  border-radius: 20px;
   max-width: 90%;
   max-height: 90%;
   overflow: auto;
@@ -787,10 +770,10 @@ emoji-picker {
 #qrcode-container {
   display: block;
   margin: 0;
-  padding: 0;
+  padding: 12px;
   line-height: 0;
   background: #fff;
-  border-radius: 18px;
+  border-radius: 20px;
   overflow: hidden;
 }
 
@@ -800,53 +783,51 @@ emoji-picker {
   padding: 0;
   width: auto;
   height: auto;
+  border-radius: 12px;
 }
 
 .invoice-text {
   word-break: break-all;
   max-width: 300px;
   font-size: 10px;
-  padding: 2px 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  margin: 0;
+  padding: 8px;
+  background: var(--background-color);
+  border-radius: 8px;
+  margin: 8px 0 0 0;
   line-height: 1.2;
-  color: #888;
+  color: #666;
 }
 
 .modal-buttons {
   display: flex;
-  gap: 4px;
-  margin: 8px 0 0 0;
+  gap: 8px;
+  margin: 12px 0 0 0;
   padding: 0;
 }
 
 .copy-button,
 .close-button {
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 8px 16px;
+  border-radius: 20px;
   border: none;
   cursor: pointer;
   line-height: normal;
   margin: 0;
-  height: 20px;
+  height: 36px;
   color: var(--text-color);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--button-background);
+  font-size: 14px;
+  transition: background-color 0.2s;
 }
 
 .copy-button:hover,
 .close-button:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--hover-color);
 }
 
 .copy-button.copied {
-  background: #3c3b3a;
+  background: var(--hover-color);
   pointer-events: none;
-}
-
-.close-button {
-  background: var(--button-hover-background);
-  color: var(--input-font-color);
 }
 
 .chatContainer {
@@ -1127,34 +1108,4 @@ emoji-picker {
     transform: translate(-50%, -50%) scale(0.8);
     opacity: 0.3;
   }
-}
-
-.zap-modal input[type="text"],
-.zap-modal input[type="number"] {
-  width: 100px;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  background: var(--input-bg);
-  color: var(--text-color);
-  font-size: 14px;
-  margin-bottom: 8px;
-  text-align: center;
-}
-
-.zap-modal button {
-  width: 100px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 18px;
-  background: var(--button-background);
-  color: var(--button-text);
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s;
-  white-space: nowrap;
-}
-
-.zap-modal button:hover {
-  background: var(--hover-color);
 }

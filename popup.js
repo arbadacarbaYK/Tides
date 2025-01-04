@@ -1367,10 +1367,22 @@ async function showQRModal(invoice) {
   const modal = document.createElement('div');
   modal.className = 'qr-modal';
   
-  modal.innerHTML = `<div class="qr-modal-content"><div class="qr-container"><div id="qrcode-container"></div><div class="invoice-text">${invoice}</div><div class="modal-buttons"><button class="copy-button">Copy Invoice</button><button class="close-button">Close</button></div></div></div>`;
+  modal.innerHTML = `
+    <div class="qr-modal-content">
+      <div class="qr-container">
+        <div id="qrcode-container"></div>
+        <div class="invoice-text">${invoice}</div>
+        <div class="modal-buttons">
+          <button class="copy-button">Copy Invoice</button>
+          <button class="close-button">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
   
   document.body.appendChild(modal);
 
+  // Use the global qrcode object
   if (typeof window.qrcode === 'undefined') {
     throw new Error('QR code library not loaded');
   }
