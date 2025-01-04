@@ -1,4 +1,4 @@
-# Tides: A Nostr Messenger Extension For Chrome/Brave  
+# Tides: A Nostr Messenger Extension For Chrome & Brave  
 
 Tides is a powerful Nostr messenger that lives right in your browser as an extension. 
 Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or Edge.
