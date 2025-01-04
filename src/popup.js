@@ -347,6 +347,7 @@ function updateUIWithMetadata(metadata) {
   const userDisplay = document.getElementById('userDisplay');
   const userNpub = document.getElementById('userNpub');
   const avatar = document.getElementById('userAvatar');
+  const userInfo = document.getElementById('userInfo');
   
   if (userDisplay) {
     userDisplay.textContent = metadata.name || metadata.displayName || 'Anonymous';
@@ -359,6 +360,97 @@ function updateUIWithMetadata(metadata) {
       avatar.src = '/icons/default-avatar.png';
     };
     avatar.src = metadata.picture || '/icons/default-avatar.png';
+  }
+
+  // Add click handler for profile popup
+  if (userInfo) {
+    userInfo.style.cursor = 'pointer';
+    userInfo.addEventListener('click', async () => {
+      const currentUser = await auth.getCurrentUser();
+      const npub = pubkeyToNpub(currentUser.pubkey);
+      
+      const modal = document.createElement('div');
+      modal.className = 'modal profile-modal';
+      
+      modal.innerHTML = `
+        <div class="modal-content profile-modal-content">
+          <div class="profile-header">
+            <img src="${metadata.picture || '/icons/default-avatar.png'}" alt="Profile" class="profile-avatar">
+            <h3>${metadata.name || metadata.displayName || 'Anonymous'}</h3>
+          </div>
+          <div class="profile-details">
+            <div class="profile-field">
+              <label>Npub</label>
+              <div class="copyable-field">
+                <input type="text" readonly value="${npub}">
+                <button class="copy-button" data-value="${npub}" title="Copy">📋</button>
+              </div>
+            </div>
+            ${metadata.nip05 ? `
+              <div class="profile-field">
+                <label>NIP-05</label>
+                <div class="copyable-field">
+                  <input type="text" readonly value="${metadata.nip05}">
+                  <button class="copy-button" data-value="${metadata.nip05}" title="Copy">📋</button>
+                </div>
+              </div>
+            ` : ''}
+            ${metadata.lud16 ? `
+              <div class="profile-field">
+                <label>Lightning Address</label>
+                <div class="copyable-field">
+                  <input type="text" readonly value="${metadata.lud16}">
+                  <button class="copy-button" data-value="${metadata.lud16}" title="Copy">📋</button>
+                </div>
+              </div>
+            ` : ''}
+            ${metadata.about ? `
+              <div class="profile-field">
+                <label>About</label>
+                <div class="about-text">${metadata.about}</div>
+              </div>
+            ` : ''}
+          </div>
+          <div class="modal-buttons">
+            <button class="close-button">Close</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+
+      // Add copy functionality
+      const copyButtons = modal.querySelectorAll('.copy-button');
+      copyButtons.forEach(button => {
+        button.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.value);
+            const originalText = button.textContent;
+            button.textContent = '✓';
+            button.classList.add('copied');
+            setTimeout(() => {
+              button.textContent = '📋';
+              button.classList.remove('copied');
+            }, 2000);
+          } catch (error) {
+            console.error('Failed to copy:', error);
+            showErrorMessage('Failed to copy to clipboard');
+          }
+        });
+      });
+
+      // Add close functionality
+      const closeButton = modal.querySelector('.close-button');
+      closeButton.addEventListener('click', () => {
+        modal.remove();
+      });
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.remove();
+        }
+      });
+    });
   }
 }
 
@@ -397,7 +489,7 @@ async function renderContactList(contacts) {
         : null;
       return {
         ...contact,
-        lastMessageTime: lastMessage ? lastMessage.created_at : null
+        lastMessageTime: lastMessage ? lastMessage.created_at : contactManager.lastMessageTimes.get(contact.pubkey) || null
       };
     }));
 
@@ -453,7 +545,7 @@ async function renderContactList(contacts) {
       otherContent.id = 'otherContent';
       
       // Sort other contacts alphabetically by display name
-      otherContacts.sort((a, b) => a.displayName.localeCompare(b.displayName));
+      otherContacts.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
       
       otherContacts.forEach(contact => {
         const contactElement = createContactElement(contact);
@@ -552,6 +644,40 @@ function createContactElement(contact) {
       currentChatPubkey = contact.pubkey;
       await initializeChat(contact.pubkey);
     }
+  });
+
+  // Add context menu handler
+  element.addEventListener('contextmenu', async (e) => {
+    e.preventDefault();
+    
+    // Remove any existing context menus
+    document.querySelectorAll('.context-menu').forEach(menu => menu.remove());
+    
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'context-menu';
+    contextMenu.innerHTML = `
+      <div class="context-menu-item">See Profile</div>
+    `;
+    
+    // Position the menu at cursor
+    contextMenu.style.left = `${e.pageX}px`;
+    contextMenu.style.top = `${e.pageY}px`;
+    
+    document.body.appendChild(contextMenu);
+    
+    // Handle menu item clicks
+    const profileItem = contextMenu.querySelector('.context-menu-item');
+    profileItem.addEventListener('click', async () => {
+      const metadata = await getUserMetadata(contact.pubkey);
+      showProfileModal(contact.pubkey, metadata);
+      contextMenu.remove();
+    });
+    
+    // Close menu when clicking outside
+    document.addEventListener('click', function closeMenu() {
+      contextMenu.remove();
+      document.removeEventListener('click', closeMenu);
+    });
   });
 
   return element;
@@ -833,20 +959,70 @@ async function sendMessage() {
     const bubbleElement = document.createElement('div');
     bubbleElement.className = 'message-bubble';
     
-    // Immediate preview for all content types
-    if (content.match(/\.(gif|jpe?g|png)$/i)) {
-      bubbleElement.innerHTML = `
-        <div class="media-container">
-          <img src="${content}" class="message-media" loading="lazy">
-        </div>`;
-    } else {
+    // Extract URLs from the content
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = content.match(urlRegex);
+    
+    if (urls) {
+      // Check each URL for image links
+      for (const url of urls) {
+        const decodedUrl = decodeURIComponent(url);
+        if (decodedUrl.includes('image.nostr.build') || decodedUrl.includes('blossom.azzamo.net')) {
+          // Extract the base URL without query parameters and clean it
+          const baseUrl = decodedUrl.split('#')[0].split('?')[0];
+          // Remove any trailing punctuation or text
+          const cleanUrl = baseUrl.replace(/[.,!?]$/, '');
+          
+          // Split content into text and URL parts
+          const parts = content.split(url);
+          const textBefore = parts[0];
+          const textAfter = parts.slice(1).join(url);
+          
+          // Add default extension for blossom.azzamo.net if no extension present
+          let mediaHtml = '';
+          if (cleanUrl.includes('blossom.azzamo.net') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
+          } else if (cleanUrl.includes('image.nostr.build') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
+          } else {
+            mediaHtml = `<img src="${cleanUrl}" class="message-media" loading="lazy" alt="Shared image">`;
+          }
+          
+          bubbleElement.innerHTML = `
+            ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
+            <div class="media-container">
+              ${mediaHtml}
+            </div>
+            ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
+          break;
+        }
+      }
+      
+      // Handle Giphy URLs if no image link was found
+      if (!bubbleElement.innerHTML && content.includes('giphy.com')) {
+        const gifUrl = content.match(/(https?:\/\/[^\s]+giphy\.com[^\s]+)/i)?.[0];
+        if (gifUrl) {
+          // Split content into text and URL parts
+          const parts = content.split(gifUrl);
+          const textBefore = parts[0];
+          const textAfter = parts.slice(1).join(gifUrl);
+          
+          bubbleElement.innerHTML = `
+            ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
+            <div class="media-container">
+              <img src="${gifUrl}" class="message-media" loading="lazy" alt="GIF">
+            </div>
+            ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
+        }
+      }
+    }
+    
+    // If no media content was added, treat as plain text
+    if (!bubbleElement.innerHTML) {
       bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content)}</div>`;
-      // Add link preview handling for new messages
-      setTimeout(() => loadLinkPreviews(), 100);
     }
 
-    if (messageList.innerHTML == '<div class="no-messages">No messages yet</div>')
-    {
+    if (messageList.innerHTML === '<div class="no-messages">No messages yet</div>') {
       messageList.innerHTML = '';
     }
     
@@ -856,7 +1032,6 @@ async function sendMessage() {
     
     const result = await messageManager.sendMessage(currentChatPubkey, content);
     
-    // Update last message time and re-render contact list
     contactManager.updateLastMessageTime(currentChatPubkey, result.created_at);
     renderContactList(Array.from(contactManager.contacts.values()));
     
@@ -894,14 +1069,66 @@ async function renderMessageContent(message, bubbleElement) {
     return;
   }
 
-  // Check if content is a GIF URL from Giphy
-  if (typeof content === 'string' && content.includes('giphy.com')) {
-    bubbleElement.innerHTML = `
-      <div class="media-container">
-        <img src="${content}" class="message-media" loading="lazy">
-      </div>`;
-
-    return;
+  // Check if content contains a media URL
+  if (typeof content === 'string') {
+    // Extract URLs from the content
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = content.match(urlRegex);
+    
+    if (urls) {
+      // Check each URL for image links
+      for (const url of urls) {
+        const decodedUrl = decodeURIComponent(url);
+        if (decodedUrl.includes('image.nostr.build') || decodedUrl.includes('blossom.azzamo.net')) {
+          // Extract the base URL without query parameters and clean it
+          const baseUrl = decodedUrl.split('#')[0].split('?')[0];
+          // Remove any trailing punctuation or text
+          const cleanUrl = baseUrl.replace(/[.,!?]$/, '');
+          
+          // Split content into text and URL parts
+          const parts = content.split(url);
+          const textBefore = parts[0];
+          const textAfter = parts.slice(1).join(url);
+          
+          // Add default extension for blossom.azzamo.net if no extension present
+          let mediaHtml = '';
+          if (cleanUrl.includes('blossom.azzamo.net') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
+          } else if (cleanUrl.includes('image.nostr.build') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
+          } else {
+            mediaHtml = `<img src="${cleanUrl}" class="message-media" loading="lazy" alt="Shared image">`;
+          }
+          
+          bubbleElement.innerHTML = `
+            ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
+            <div class="media-container">
+              ${mediaHtml}
+            </div>
+            ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
+          return;
+        }
+      }
+    }
+    
+    // Handle Giphy URLs
+    if (content.includes('giphy.com')) {
+      const gifUrl = content.match(/(https?:\/\/[^\s]+giphy\.com[^\s]+)/i)?.[0];
+      if (gifUrl) {
+        // Split content into text and URL parts
+        const parts = content.split(gifUrl);
+        const textBefore = parts[0];
+        const textAfter = parts.slice(1).join(gifUrl);
+        
+        bubbleElement.innerHTML = `
+          ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
+          <div class="media-container">
+            <img src="${gifUrl}" class="message-media" loading="lazy" alt="GIF">
+          </div>
+          ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
+        return;
+      }
+    }
   }
 
   // Plain text messages
@@ -918,7 +1145,6 @@ async function renderMessageContent(message, bubbleElement) {
         <span class="zap-amount">${message.zapAmount || ''}</span>
       `;
       
-      // Ensure container is positioned correctly
       bubbleElement.style.position = 'relative';
       
       const zapButton = zapContainer.querySelector('.zap-button');
@@ -1636,6 +1862,93 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 });
+
+// Add function to show profile modal
+async function showProfileModal(pubkey, metadata) {
+  const npub = pubkeyToNpub(pubkey);
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal profile-modal';
+  
+  modal.innerHTML = `
+    <div class="modal-content profile-modal-content">
+      <div class="profile-header">
+        <img src="${metadata.picture || '/icons/default-avatar.png'}" alt="Profile" class="profile-avatar">
+        <h3>${metadata.name || metadata.displayName || 'Anonymous'}</h3>
+      </div>
+      <div class="profile-details">
+        <div class="profile-field">
+          <label>Npub</label>
+          <div class="copyable-field">
+            <input type="text" readonly value="${npub}">
+            <button class="copy-button" data-value="${npub}" title="Copy">📋</button>
+          </div>
+        </div>
+        ${metadata.nip05 ? `
+          <div class="profile-field">
+            <label>NIP-05</label>
+            <div class="copyable-field">
+              <input type="text" readonly value="${metadata.nip05}">
+              <button class="copy-button" data-value="${metadata.nip05}" title="Copy">📋</button>
+            </div>
+          </div>
+        ` : ''}
+        ${metadata.lud16 ? `
+          <div class="profile-field">
+            <label>Lightning Address</label>
+            <div class="copyable-field">
+              <input type="text" readonly value="${metadata.lud16}">
+              <button class="copy-button" data-value="${metadata.lud16}" title="Copy">📋</button>
+            </div>
+          </div>
+        ` : ''}
+        ${metadata.about ? `
+          <div class="profile-field">
+            <label>About</label>
+            <div class="about-text">${metadata.about}</div>
+          </div>
+        ` : ''}
+      </div>
+      <div class="modal-buttons">
+        <button class="close-button">Close</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+
+  // Add copy functionality
+  const copyButtons = modal.querySelectorAll('.copy-button');
+  copyButtons.forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.value);
+        const originalText = button.textContent;
+        button.textContent = '✓';
+        button.classList.add('copied');
+        setTimeout(() => {
+          button.textContent = '📋';
+          button.classList.remove('copied');
+        }, 2000);
+      } catch (error) {
+        console.error('Failed to copy:', error);
+        showErrorMessage('Failed to copy to clipboard');
+      }
+    });
+  });
+
+  // Add close functionality
+  const closeButton = modal.querySelector('.close-button');
+  closeButton.addEventListener('click', () => {
+    modal.remove();
+  });
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+}
 
 /**
  * @file popup.js
