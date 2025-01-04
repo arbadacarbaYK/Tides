@@ -1,6 +1,7 @@
 import { nostrCore, pool, RELAYS, shortenIdentifier } from './shared.js';
-import { validateEvent, getStoredCredentials, soundManager } from './utils.js';
+import { validateEvent, soundManager } from './utils.js';
 import { storeMetadata } from './userMetadata.js';
+import { credentialManager } from './credentialManager.js';
 
 class Auth {
   constructor() {
@@ -8,7 +9,7 @@ class Auth {
   }
 
   async init() {
-    const stored = await getStoredCredentials();
+    const stored = await credentialManager.getStoredCredentials();
     if (stored) {
       this.currentUser = stored;
       return stored;
@@ -99,17 +100,13 @@ class Auth {
     }
     
     this.currentUser = credentials;
-    await chrome.storage.local.set({ 
-      currentUser: credentials,
-      [`credentials:${credentials.pubkey}`]: credentials 
-    });
+    await credentialManager.storeCredentials(credentials);
     return credentials;
   }
 
   async getStoredCredentials() {
     try {
-      const { currentUser } = await chrome.storage.local.get('currentUser');
-      return currentUser || null;
+      return await credentialManager.getStoredCredentials();
     } catch (error) {
       console.error('Failed to get stored credentials:', error);
       return null;
