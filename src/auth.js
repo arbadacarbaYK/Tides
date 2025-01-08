@@ -47,7 +47,26 @@ class Auth {
     }
 
     try {
+      // Test if we can actually get permissions
+      await window.nostr.enable();
+      
+      // Get public key
       const pubkey = await window.nostr.getPublicKey();
+      
+      // Verify we can sign (this confirms the extension is working)
+      const testEvent = {
+        kind: 1,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [],
+        content: 'test'
+      };
+      
+      try {
+        await window.nostr.signEvent(testEvent);
+      } catch (e) {
+        throw new Error('Nostr extension cannot sign events. Please check its permissions.');
+      }
+
       const npub = nostrCore.nip19.npubEncode(pubkey);
       
       const credentials = {
@@ -150,6 +169,7 @@ class Auth {
 }
 
 const auth = new Auth();
+window.auth = auth;
 export { auth };
 
 /**

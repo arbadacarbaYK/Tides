@@ -20,13 +20,16 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 ## Features 🚀
 
 - **Direct Messaging**: Seamless peer-to-peer communication over the Nostr network
+- **Group Chats**: Create and manage group conversations with multiple participants
 - **Zaps Integration**: Send and receive Bitcoin tips via Lightning Network
 - **Media Support**: Share images, GIFs, and embed content from popular platforms
-- **Rich Link Previews**: Automatic previews for Nostr notes, profiles, and media links
+- **Rich Link Previews**: Automatic previews for Nostr notes, profiles, YouTube, Twitter/X, and media links
 - **Multiple Relay Support**: Connect to various Nostr relays for increased reliability
 - **Extension Login**: Compatible with NIP-07 browser extensions like Alby and nos2x
-- **Offline Support**: Access your message history even when offline
+- **Message Caching**: Temporary storage of recent messages for faster loading
 - **Custom Themes**: Dark mode support with a sleek, modern interface
+- **Search**: Search through contacts, groups, and messages
+- **Group Management**: Create, edit, and leave groups with member management
 
 ## Installation for Users 🔧
 
@@ -100,9 +103,13 @@ Supports NIPs:
 - NIP-19: bech32-encoded entities
 - NIP-21: nostr: URL scheme
 - NIP-25: Reactions
+- NIP-28: Public Chat Channels
+- NIP-40: Expiration Timestamp
+- NIP-42: Authentication
 - NIP-44: Versioned Encryption
 - NIP-57: Lightning Zaps
 - NIP-89: Application Handlers
+- NIP-92: Media Attachments
 
 ### Development Guidelines
 
@@ -119,16 +126,28 @@ Supports NIPs:
    - Monitor relay health
 
 3. **Message Handling**
-   - Encrypt all DMs using NIP-04
+   - Encrypt all DMs using NIP-04/44
    - Validate message signatures
    - Handle different content types
    - Implement proper error recovery
+   - Process group messages (kind 42)
+   - Handle group metadata updates
 
-4. **Performance**
+4. **Group Management**
+   - Create and edit groups
+   - Member management
+   - Group metadata handling
+   - Leave group functionality
+   - Group message caching
+   - Group event validation
+
+5. **Performance**
    - Cache user metadata locally
+   - Cache group data locally
    - Implement lazy loading for media
    - Optimize WebSocket connections
    - Minimize storage usage
+   - Efficient message filtering
 
 ## Privacy & Security 🔒
 

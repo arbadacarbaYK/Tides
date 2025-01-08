@@ -16,7 +16,7 @@ var Background = (function(NostrTools) {
     'wss://nos.lol',
     'wss://relay.snort.social',
     'wss://nostr.wine',
-    'wss://nostr.noderunners.network',
+    'wss://inbox.noderunners.network',
     'wss://nostr.einundzwanzig.space'
   ];
 
@@ -212,6 +212,43 @@ var Background = (function(NostrTools) {
     }
   };
 
+  // Add this after the nostrCore initialization
+  const handleZapEvent = async (event) => {
+    try {
+      // Validate zap event
+      if (event.kind !== 9735) return;
+
+      // Get the zapped message ID from the tags
+      const zappedEventTag = event.tags.find(t => t[0] === 'e' && t[3] !== 'root');
+      if (!zappedEventTag) return;
+
+      const messageId = zappedEventTag[1];
+      
+      // Get the amount from the tags
+      const amountTag = event.tags.find(t => t[0] === 'amount');
+      if (!amountTag) return;
+
+      const amount = parseInt(amountTag[1]);
+      if (!amount) return;
+
+      // Notify the UI about the received zap
+      chrome.runtime.sendMessage({
+        type: 'ZAP_RECEIVED',
+        data: {
+          messageId,
+          amount,
+          zapperPubkey: event.pubkey,
+          timestamp: event.created_at
+        }
+      });
+
+      // Play a sound for received zaps
+      soundManager.play('message');
+    } catch (error) {
+      console.error('Error handling zap event:', error);
+    }
+  };
+
   // Service Worker Event Listeners
   self.addEventListener('install', async (event) => {
     console.log('Service Worker installing.');
@@ -226,6 +263,39 @@ var Background = (function(NostrTools) {
     ]));
   });
 
+  // Add zap event handling to the subscription
+  const setupSubscription = (user) => {
+    if (currentSubscription) {
+      currentSubscription.unsub();
+    }
+
+    // Get contacts array safely
+    const contactPubkeys = Array.from(contacts.values())
+      .map(contact => contact.pubkey)
+      .filter(Boolean);
+
+    currentSubscription = pool.sub(
+      RELAYS.map(relay => ({
+        relay,
+        filter: [
+          { kinds: [0], authors: contactPubkeys }, // Metadata for all contacts
+          { kinds: [3], authors: [user.pubkey] }, // Contact list
+          { kinds: [4], '#p': [user.pubkey] }, // DMs
+          { kinds: [9735], '#p': [user.pubkey] }, // Zaps received
+          { kinds: [30311], '#p': [user.pubkey] } // Streams
+        ]
+      }))
+    );
+
+    currentSubscription.on('event', event => {
+      if (event.kind === 9735) {
+        handleZapEvent(event);
+      }
+      // ... rest of the event handling
+    });
+  };
+
+  // Update the message listener to use the new setup function
   self.addEventListener('message', async (event) => {
     const { type, data } = event.data;
     
@@ -235,18 +305,14 @@ var Background = (function(NostrTools) {
         try {
           await relayPool.ensureConnection();
           
-          if (currentSubscription) {
-            currentSubscription.unsub();
-          }
-
           // First fetch existing data
-          const contacts = await fetchContacts(user.pubkey);
-          if (contacts.length > 0) {
-            setContacts(contacts);
+          const fetchedContacts = await fetchContacts(user.pubkey);
+          if (fetchedContacts.length > 0) {
+            setContacts(fetchedContacts);
             
             // Fetch metadata for all contacts before sending updates
             console.log('Fetching metadata for all contacts...');
-            await Promise.all(contacts.map(async (contact) => {
+            await Promise.all(fetchedContacts.map(async (contact) => {
               try {
                 const metadata = await getUserMetadata(contact.pubkey);
                 if (metadata) {
@@ -265,25 +331,12 @@ var Background = (function(NostrTools) {
             // Now send the contacts update with metadata
             chrome.runtime.sendMessage({
               type: 'CONTACTS_UPDATED',
-              data: contacts
+              data: fetchedContacts
             });
           }
 
-          // Then set up live subscriptions for future updates
-          const filters = [
-            { kinds: [0], authors: contacts.map(c => c.pubkey) }, // Metadata for all contacts
-            { kinds: [3], authors: [user.pubkey] }, // Contact list
-            { kinds: [4], '#p': [user.pubkey] }, // DMs
-            { kinds: [9735], '#p': [user.pubkey] }, // Zaps
-            { kinds: [30311], '#p': [user.pubkey] } // Streams
-          ];
-
-          currentSubscription = pool.sub(
-            RELAYS.map(relay => ({
-              relay,
-              filter: filters
-            }))
-          );
+          // Then set up live subscriptions
+          setupSubscription(user);
 
           soundManager.play('login', true);
           

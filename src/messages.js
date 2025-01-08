@@ -5,10 +5,132 @@ import NostrTools from 'nostr-tools';
 
 export class MessageManager {
   constructor() {
-    this.subscriptions = new Map();
     this.messageCache = new Map();
-    this.pool = new NostrTools.SimplePool();
     this.currentChatPubkey = null;
+    this.currentSubscription = null;
+    this.pool = pool;
+  }
+
+  async init(pubkey) {
+    this.currentChatPubkey = pubkey;
+    
+    if (this.currentSubscription) {
+      this.currentSubscription.unsub();
+    }
+
+    const currentUser = await auth.getCurrentUser();
+    if (!currentUser) return;
+
+    const filter = {
+      kinds: [4],
+      '#p': [currentUser.pubkey],
+      since: Math.floor(Date.now() / 1000) - 1
+    };
+
+    this.currentSubscription = this.pool.sub(RELAYS, [filter]);
+    this.currentSubscription.on('event', async (event) => {
+      if (this.validateEvent(event)) {
+        const otherPubkey = event.pubkey === currentUser.pubkey ? 
+          event.tags.find(t => t[0] === 'p')?.[1] : event.pubkey;
+        
+        if (otherPubkey === this.currentChatPubkey) {
+          await this.handleIncomingMessage(event);
+        }
+      }
+    });
+
+    return this.fetchMessages(pubkey);
+  }
+
+  async cleanup() {
+    if (this.currentSubscription) {
+      this.currentSubscription.unsub();
+      this.currentSubscription = null;
+    }
+    this.currentChatPubkey = null;
+  }
+
+  async sendMessage(pubkey, message) {
+    const currentUser = await auth.getCurrentUser();
+    if (!currentUser?.pubkey) {
+      throw new Error('User not authenticated');
+    }
+
+    await relayPool.ensureConnection();
+    const relays = relayPool.getConnectedRelays();
+    if (!relays || relays.length === 0) {
+      throw new Error('No connected relays available');
+    }
+
+    let encryptedContent;
+    try {
+      if (currentUser.type === 'NIP-07') {
+        encryptedContent = await window.nostr.nip04.encrypt(pubkey, message);
+      } else {
+        encryptedContent = await NostrTools.nip04.encrypt(currentUser.privkey, pubkey, message);
+      }
+    } catch (error) {
+      throw new Error('Failed to encrypt message');
+    }
+
+    const event = {
+      kind: 4,
+      pubkey: currentUser.pubkey,
+      content: encryptedContent,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [['p', pubkey], ['client', 'tides']]
+    };
+
+    // Sign the event
+    try {
+      event.id = NostrTools.getEventHash(event);
+      if (currentUser.type === 'NIP-07') {
+        event.sig = await window.nostr.signEvent(event);
+      } else {
+        event.sig = NostrTools.getSignature(event, currentUser.privkey);
+      }
+    } catch (error) {
+      throw new Error('Failed to sign message');
+    }
+
+    let publishedToAny = false;
+    const errors = [];
+
+    // Try each relay sequentially to avoid multiple error reports
+    for (const relay of relays) {
+      try {
+        await this.pool.publish([relay], event);
+        publishedToAny = true;
+        break;
+      } catch (err) {
+        if (!err.message?.includes('no active subscription') && 
+            !err.message?.includes('restricted')) {
+          errors.push(`${relay}: ${err.message}`);
+        }
+        continue;
+      }
+    }
+
+    if (!publishedToAny) {
+      if (errors.length > 0) {
+        throw new Error(`Failed to publish message: ${errors.join(', ')}`);
+      }
+      throw new Error('Failed to publish message to any relay');
+    }
+    
+    const dmMessage = {
+      id: event.id,
+      pubkey: event.pubkey,
+      content: message,
+      created_at: event.created_at,
+      tags: event.tags,
+      type: 'dm',
+      recipientPubkey: pubkey
+    };
+
+    // Store the message immediately
+    await this.storeMessage(dmMessage);
+    return dmMessage;
   }
 
   async fetchMessages(pubkey) {
@@ -24,7 +146,48 @@ export class MessageManager {
       const userPubkey = currentUser.pubkey.toLowerCase();
       const targetPubkey = pubkey.toLowerCase();
 
-      // Create filters for both sent and received messages
+      // Handle self-messages first
+      if (userPubkey === targetPubkey) {
+        const filters = [{
+          kinds: [4],
+          authors: [userPubkey],
+          '#p': [userPubkey]
+        }];
+
+        const events = await this.pool.list(connectedRelays, filters);
+        const messages = await Promise.all(
+          events
+            .filter(event => {
+              // Additional validation for DMs
+              if (event.kind !== 4) return false;
+              // Must have exactly one p tag for recipient
+              const pTags = event.tags.filter(t => t[0] === 'p');
+              if (pTags.length !== 1) return false;
+              // For self-messages, author must be same as recipient
+              if (pTags[0][1].toLowerCase() !== event.pubkey.toLowerCase()) return false;
+              return true;
+            })
+            .sort((a, b) => a.created_at - b.created_at)
+            .map(async (event) => {
+              const decrypted = await this.decryptMessage(event);
+              if (!decrypted) return null;
+              
+              // Add DM-specific attributes
+              return {
+                id: event.id,
+                pubkey: event.pubkey,
+                content: decrypted,
+                created_at: event.created_at,
+                tags: event.tags,
+                type: 'dm',
+                recipientPubkey: event.tags.find(t => t[0] === 'p')?.[1]
+              };
+            })
+        );
+
+        return messages.filter(Boolean);
+      }
+
       const filters = [
         {
           kinds: [4],
@@ -38,45 +201,41 @@ export class MessageManager {
         }
       ];
 
-      // Handle self-messages
-      if (userPubkey === targetPubkey) {
-        filters.length = 0;
-        filters.push({
-          kinds: [4],
-          '#p': [userPubkey],
-          authors: [userPubkey]
-        });
-      }
-
-      console.log('Fetching messages with filters:', filters);
       const events = await this.pool.list(connectedRelays, filters);
-      console.log(`Found ${events.length} messages for ${pubkey}`);
+      console.log(`Found ${events.length} DM messages for ${pubkey}`);
 
       // Process and decrypt messages
       const messages = await Promise.all(
         events
-          .filter(this.validateEvent)
+          .filter(event => {
+            // Additional validation for DMs
+            if (event.kind !== 4) return false;
+            // Must have exactly one p tag for recipient
+            const pTags = event.tags.filter(t => t[0] === 'p');
+            if (pTags.length !== 1) return false;
+            return true;
+          })
           .sort((a, b) => a.created_at - b.created_at)
           .map(async (event) => {
             const decrypted = await this.decryptMessage(event);
             if (!decrypted) return null;
             
+            // Add DM-specific attributes
             return {
               id: event.id,
               pubkey: event.pubkey,
               content: decrypted,
               created_at: event.created_at,
-              tags: event.tags
+              tags: event.tags,
+              type: 'dm',
+              recipientPubkey: event.tags.find(t => t[0] === 'p')?.[1]
             };
           })
       );
 
-      const validMessages = messages.filter(Boolean);
-      console.log(`Decrypted ${validMessages.length} valid messages for ${pubkey}`);
-      return validMessages;
+      return messages.filter(Boolean);
     } catch (err) {
-      console.error('Error fetching messages:', err);
-      throw err;
+      throw new Error('Failed to fetch messages');
     }
   }
 
@@ -85,11 +244,11 @@ export class MessageManager {
       const currentUser = await auth.getCurrentUser();
       const privateKey = await auth.getPrivateKey();
       
+      if (!currentUser) return null;
       if (!privateKey) {
         throw new Error('No private key available');
       }
 
-      let decrypted;
       const isSent = event.pubkey === currentUser.pubkey;
       
       // Get recipient pubkey from tags
@@ -101,143 +260,76 @@ export class MessageManager {
         throw new Error('No recipient pubkey found in tags');
       }
 
-      // Handle different encryption methods
-      try {
-        if (privateKey === window.nostr) {
-          decrypted = await window.nostr.nip04.decrypt(
-            isSent ? recipientPubkey : event.pubkey,
-            event.content
-          );
-        } else {
-          decrypted = await NostrTools.nip04.decrypt(
-            privateKey,
-            isSent ? recipientPubkey : event.pubkey,
-            event.content
-          );
-        }
-      } catch (decryptError) {
-        // Silently handle padding errors
-        if (decryptError.message?.includes('padding')) {
-          return null;
-        }
-        // For other decryption errors, log but don't throw
-        console.debug('Message decryption failed:', decryptError.message);
-        return null;
+      let decrypted;
+      if (currentUser.type === 'NIP-07') {
+        decrypted = await window.nostr.nip04.decrypt(
+          isSent ? recipientPubkey : event.pubkey,
+          event.content
+        );
+      } else {
+        decrypted = await NostrTools.nip04.decrypt(
+          privateKey,
+          isSent ? recipientPubkey : event.pubkey,
+          event.content
+        );
       }
 
       return decrypted;
-    } catch (err) {
-      // Only log critical errors that aren't related to decryption
-      if (!err.message?.includes('padding')) {
-        console.error('Critical message handling error:', err);
-      }
-      return null;
-    }
-  }
-
-  validateEvent(event) {
-    try {
-      return event && 
-             typeof event === 'object' && 
-             event.id && 
-             event.pubkey && 
-             event.created_at && 
-             event.kind && 
-             event.content;
-    } catch (err) {
-      console.error('Event validation failed:', err);
+    } catch (error) {
       return null;
     }
   }
 
   async handleIncomingMessage(event) {
-    const decrypted = await this.decryptMessage(event);
-    if (decrypted) {
-      chrome.runtime.sendMessage({
-        type: 'NEW_MESSAGE',
-        data: {
-          id: event.id,
-          pubkey: event.pubkey,
-          content: decrypted,
-          created_at: event.created_at
-        }
-      });
-      soundManager.play('message');
-    }
-  }
-
-  cleanup() {
-    this.subscriptions.forEach(sub => sub.unsub());
-    this.subscriptions.clear();
-    this.messageCache.clear();
-  }
-
-  async sendMessage(recipientPubkey, content) {
-    const currentUser = await auth.getCurrentUser();
-    if (!currentUser?.pubkey) {
-      throw new Error('User not authenticated');
-    }
-
-    const messageKey = `${currentUser.pubkey}-${recipientPubkey}-${content}-${Date.now()}`;
-    if (this.messageCache.has(messageKey)) {
-      return this.messageCache.get(messageKey);
-    }
-
     try {
-      let encrypted;
-      if (currentUser.type === 'NIP-07' && window.nostr?.nip04?.encrypt) {
-        encrypted = await window.nostr.nip04.encrypt(recipientPubkey, content);
-      } else if (currentUser.type === 'NSEC' && currentUser.privkey) {
-        encrypted = await NostrTools.nip04.encrypt(
-          currentUser.privkey,
-          recipientPubkey,
-          content
-        );
-      } else {
-        throw new Error(`Unsupported login type: ${currentUser.type}`);
-      }
+      const decrypted = await this.decryptMessage(event);
+      if (!decrypted) return;
 
-      const event = {
-        kind: 4,
-        pubkey: currentUser.pubkey,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [['p', recipientPubkey]],
-        content: encrypted
+      const message = {
+        id: event.id,
+        pubkey: event.pubkey,
+        content: decrypted,
+        created_at: event.created_at,
+        tags: event.tags,
+        type: 'dm',
+        recipientPubkey: event.tags.find(t => t[0] === 'p')?.[1]
       };
 
-      event.id = nostrCore.getEventHash(event);
-      
-      if (currentUser.type === 'NIP-07') {
-        event.sig = await window.nostr.signEvent(event);
-      } else {
-        event.sig = nostrCore.getSignature(event, currentUser.privkey);
-      }
-
-      const result = {
-        ...event,
-        decrypted: content,
-        timestamp: event.created_at * 1000
-      };
-
-      this.messageCache.set(messageKey, result);
-
-      const relays = relayPool.getConnectedRelays();
-      await Promise.race([
-        this.pool.publish(relays, event),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 5000))
-      ]);
-
-      return result;
+      await this.storeMessage(message);
+      return message;
     } catch (error) {
-      this.messageCache.delete(messageKey);
-      throw error;
+      return null;
     }
+  }
+
+  async storeMessage(message) {
+    if (!message.type || message.type !== 'dm') {
+      throw new Error('Invalid message type. Only DMs can be stored here.');
+    }
+
+    if (!message.recipientPubkey) {
+      throw new Error('Missing recipient pubkey for DM');
+    }
+
+    // Store in message cache with both sender and recipient keys
+    const key = `${message.pubkey}_${message.recipientPubkey}`;
+    const reverseKey = `${message.recipientPubkey}_${message.pubkey}`;
+    
+    // Store message under both keys to ensure it appears in both directions
+    [key, reverseKey].forEach(k => {
+      if (!this.messageCache.has(k)) {
+        this.messageCache.set(k, []);
+      }
+      if (!this.messageCache.get(k).some(m => m.id === message.id)) {
+        this.messageCache.get(k).push(message);
+        this.messageCache.get(k).sort((a, b) => a.created_at - b.created_at);
+      }
+    });
   }
 }
 
 export const messageManager = new MessageManager();
 export const sendMessage = messageManager.sendMessage.bind(messageManager);
-export const receiveMessage = messageManager.handleIncomingMessage.bind(messageManager);
 export const fetchMessages = messageManager.fetchMessages.bind(messageManager);
 
 /**
@@ -262,3 +354,4 @@ export const fetchMessages = messageManager.fetchMessages.bind(messageManager);
  * await messageManager.sendMessage(recipientPubkey, content);
  * const messages = await messageManager.fetchMessages(pubkey);
  */
+

@@ -11,6 +11,7 @@ import 'emoji-picker-element';
 import { searchGifs, getTrendingGifs } from './services/giphy.js';
 import { RELAYS } from './shared.js';
 import qrcode from 'qrcode';
+import { nostrCore, pool, relayPool } from './shared.js';
 
 /**
  * Global state variables for managing UI interactions and message handling
@@ -28,6 +29,7 @@ let emojiPickerListener;
 let hasPlayedLoginSound = false;
 let lastMessageTimestamp = 0;
 let searchHistory = [];
+let currentGroupId = null; 
 
 function initializeGifButton() {
   const gifButton = document.getElementById('gifButton');
@@ -38,7 +40,6 @@ function initializeGifButton() {
   gifButton.parentNode.replaceChild(newGifButton, gifButton);
 
   newGifButton.addEventListener('click', async () => {
-    console.log('GIF button clicked');
     const existingPicker = document.querySelector('.gif-picker');
     if (existingPicker) {
       existingPicker.remove();
@@ -66,7 +67,7 @@ function initializeGifButton() {
       const trending = await getTrendingGifs();
       renderGifs(trending, gifGrid);
     } catch (error) {
-      console.error('Failed to load trending GIFs:', error);
+      showErrorMessage('Failed to load GIFs');
     }
 
     let searchTimeout;
@@ -83,12 +84,11 @@ function initializeGifButton() {
             renderGifs(trending, gifGrid);
           }
         } catch (error) {
-          console.error('GIF search failed:', error);
+          showErrorMessage('GIF search failed');
         }
       }, 300);
     });
 
-    // Close picker when clicking outside
     setTimeout(() => {
       document.addEventListener('click', function closePickerHandler(e) {
         if (!picker.contains(e.target) && e.target !== newGifButton) {
@@ -170,6 +170,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initializeSearchInput();
   initializeUI();
   initializeGifButton();
+  initializeCreateGroupButton();
+  
   const storedUser = await auth.getStoredCredentials();
   if (storedUser) {
     await handleSuccessfulLogin(storedUser); 
@@ -184,7 +186,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
     } catch (e) {
-      console.debug("NIP-07 not available:", e);
+      if (window.nostr) {
+        showErrorMessage('NIP-07 login failed');
+      }
     }
   }
 
@@ -224,9 +228,7 @@ async function handleSuccessfulLogin(user) {
       soundManager.play('login');
       hasPlayedLoginSound = true;
     }
-    
   } catch (error) {
-    console.error('Login failed:', error);
     showErrorMessage('Login failed: ' + error.message);
   } finally {
     document.getElementById('loadingIndicator').style.display = 'none';
@@ -281,10 +283,21 @@ async function loadUserData(user) {
   try {
     loadingIndicator.style.display = 'block';
     
-    // Only fetch contacts - channels will come through contact events
+    // Initialize contacts
     const contacts = await fetchContacts(user.pubkey);
     setContacts(contacts);
-    renderContactList(contacts);
+
+    // Initialize groups
+    if (window.groupContactManager) {
+      console.log('Initializing group manager...');
+      await window.groupContactManager.init();
+      console.log('Groups after init:', Array.from(window.groupContactManager.groups.values()));
+    } else {
+      console.error('groupContactManager not available');
+    }
+
+    // Render both contacts and groups
+    await renderContactList(contacts);
 
     const metadata = await getUserMetadata(user.pubkey);
     if (metadata) {
@@ -412,6 +425,7 @@ function updateUIWithMetadata(metadata) {
             ` : ''}
           </div>
           <div class="modal-buttons">
+            <button class="copy-button">Copy</button>
             <button class="close-button">Close</button>
           </div>
         </div>
@@ -456,6 +470,8 @@ function updateUIWithMetadata(metadata) {
 
 async function renderContactList(contacts) {
   const contactList = document.getElementById('contactList');
+  if (!contactList) return;
+  
   contactList.innerHTML = '';
   
   // Create streams section
@@ -480,25 +496,100 @@ async function renderContactList(contacts) {
   streamSection.appendChild(streamContent);
   contactList.appendChild(streamSection);
 
+  // Create groups section
+  const groupSection = document.createElement('div');
+  groupSection.className = 'contact-section';
+  
+  const groupHeader = document.createElement('div');
+  groupHeader.className = 'section-header';
+  groupHeader.dataset.section = 'groups';
+  groupHeader.innerHTML = '<h3>Groups</h3><span class="collapse-icon">▼</span>';
+  
+  const groupContent = document.createElement('div');
+  groupContent.className = 'section-content';
+  groupContent.id = 'groupsContent';
+
+  // Add create group button
+  const createGroupButton = document.createElement('button');
+  createGroupButton.className = 'create-group-button';
+  createGroupButton.innerHTML = '<span>Create New Group</span>';
+  groupContent.appendChild(createGroupButton);
+
+  // Initialize the create group button right after creating it
+  initializeCreateGroupButton();
+
+  // Add user's groups
+  if (window.groupContactManager) {
+    const userGroups = Array.from(window.groupContactManager.groups.values())
+      .filter(group => {
+        // Double check that the group is not in leftGroups
+        const isLeft = window.groupContactManager.leftGroups.has(group.id);
+        console.log('Group:', group.id, 'isLeft:', isLeft);
+        return !isLeft;
+      })
+      .sort((a, b) => {
+        const timeA = a.lastMessage?.created_at || a.created_at;
+        const timeB = b.lastMessage?.created_at || b.created_at;
+        return timeB - timeA;
+      });
+
+    console.log('Filtered groups:', userGroups);
+
+    if (userGroups && userGroups.length > 0) {
+      userGroups.forEach(group => {
+        const groupElement = createContactElement({
+          pubkey: group.id,
+          id: group.id,
+          displayName: group.name || 'Unnamed Group',
+          avatarUrl: (group.picture || '').trim() || 'icons/default-group.png',
+          about: group.about || '',
+          created_at: group.created_at,
+          isGroup: true,
+          members: group.members || [],
+          creator: group.creator,
+          name: group.name || 'Unnamed Group',
+          picture: (group.picture || '').trim() || 'icons/default-group.png'
+        });
+        groupContent.appendChild(groupElement);
+      });
+    } else {
+      const noGroupsMessage = document.createElement('div');
+      noGroupsMessage.className = 'no-groups-message';
+      noGroupsMessage.textContent = 'No groups yet';
+      groupContent.appendChild(noGroupsMessage);
+    }
+  }
+  
+  groupSection.appendChild(groupHeader);
+  groupSection.appendChild(groupContent);
+  contactList.appendChild(groupSection);
+
   if (contacts && contacts.length > 0) {
-    // Get all messages for each contact first
+    // Get all messages for each contact first, including temporary contacts
     const contactsWithMessages = await Promise.all(contacts.map(async (contact) => {
-      const messages = await messageManager.fetchMessages(contact.pubkey);
-      const lastMessage = messages && messages.length > 0 
-        ? messages.reduce((latest, msg) => msg.created_at > latest.created_at ? msg : latest)
-        : null;
-      return {
-        ...contact,
-        lastMessageTime: lastMessage ? lastMessage.created_at : contactManager.lastMessageTimes.get(contact.pubkey) || null
-      };
+      try {
+        const messages = await messageManager.fetchMessages(contact.pubkey);
+        // Filter out group messages to only consider DMs
+        const dmMessages = messages.filter(msg => !msg.groupId && msg.type !== 'group');
+        const lastMessage = dmMessages && dmMessages.length > 0 
+          ? dmMessages.reduce((latest, msg) => msg.created_at > latest.created_at ? msg : latest)
+          : null;
+        return {
+          ...contact,
+          lastMessageTime: lastMessage ? lastMessage.created_at : null
+        };
+      } catch (error) {
+        console.error('Error fetching messages for contact:', contact.pubkey, error);
+        return {
+          ...contact,
+          lastMessageTime: null
+        };
+      }
     }));
 
     // Split contacts into recent and other based on message existence
     const recentContacts = contactsWithMessages.filter(c => c.lastMessageTime !== null);
     const otherContacts = contactsWithMessages.filter(c => c.lastMessageTime === null);
-
-    console.log('Recent contacts:', recentContacts.length);
-    console.log('Other contacts:', otherContacts.length);
 
     // Sort recent contacts by last message time
     recentContacts.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
@@ -530,33 +621,46 @@ async function renderContactList(contacts) {
       contactList.appendChild(recentSection);
     }
 
-    // Create Other Contacts section if there are any
-    if (otherContacts.length > 0) {
-      const otherSection = document.createElement('div');
-      otherSection.className = 'contact-section';
-      
-      const otherHeader = document.createElement('div');
-      otherHeader.className = 'section-header';
-      otherHeader.dataset.section = 'other';
-      otherHeader.innerHTML = '<h3>Other Contacts</h3><span class="collapse-icon">▼</span>';
-      
-      const otherContent = document.createElement('div');
-      otherContent.className = 'section-content';
-      otherContent.id = 'otherContent';
-      
-      // Sort other contacts alphabetically by display name
-      otherContacts.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
-      
-      otherContacts.forEach(contact => {
-        const contactElement = createContactElement(contact);
-        otherContent.appendChild(contactElement);
-      });
-      
-      otherSection.appendChild(otherHeader);
-      otherSection.appendChild(otherContent);
-      contactList.appendChild(otherSection);
-    }
+    // Create Other Contacts section
+    const otherSection = document.createElement('div');
+    otherSection.className = 'contact-section';
+    
+    const otherHeader = document.createElement('div');
+    otherHeader.className = 'section-header';
+    otherHeader.dataset.section = 'other';
+    otherHeader.innerHTML = '<h3>Other Contacts</h3><span class="collapse-icon">▼</span>';
+    
+    const otherContent = document.createElement('div');
+    otherContent.className = 'section-content';
+    otherContent.id = 'otherContent';
+    
+    // Sort other contacts alphabetically by display name
+    otherContacts.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    
+    otherContacts.forEach(contact => {
+      const contactElement = createContactElement(contact);
+      otherContent.appendChild(contactElement);
+    });
+    
+    otherSection.appendChild(otherHeader);
+    otherSection.appendChild(otherContent);
+    contactList.appendChild(otherSection);
   }
+
+  // Add section collapse functionality
+  document.querySelectorAll('.section-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const content = document.getElementById(`${header.dataset.section}Content`);
+      const icon = header.querySelector('.collapse-icon');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+      } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
+      }
+    });
+  });
 }
 
 // Add search functionality
@@ -577,42 +681,41 @@ document.getElementById('searchInput').addEventListener('input', function(e) {
 
 function createContactElement(contact) {
   const element = document.createElement('div');
-  element.className = 'contact-item';
-  element.dataset.pubkey = contact.pubkey;
-  if (contact.streamUrl) {
-    element.dataset.streamUrl = contact.streamUrl;
-  }
+  element.className = `contact-item ${contact.isChannel ? 'channel' : ''} ${contact.isGroup ? 'group' : ''}`;
+  element.dataset.pubkey = contact.pubkey || contact.id;
   
-  if (currentChatPubkey === contact.pubkey) {
-    element.classList.add('selected');
-  }
-  
-  const avatarSrc = contact.avatarUrl || (contact.isChannel ? '/icons/default-avatar.png' : '/icons/default-avatar.png');
-  
-  // Create elements directly instead of using innerHTML
   const img = document.createElement('img');
-  img.src = avatarSrc;
-  img.alt = contact.displayName;
-  img.className = 'contact-avatar';
-
+  img.className = contact.isGroup ? 'group-avatar' : 'contact-avatar';
+  img.src = contact.avatarUrl || '/icons/default-avatar.png';
+  img.onerror = () => {
+    if (contact.isGroup) {
+      // Create text-based avatar for groups
+      img.style.display = 'flex';
+      img.style.alignItems = 'center';
+      img.style.justifyContent = 'center';
+      img.style.backgroundColor = 'var(--border-color)';
+      img.style.color = 'var(--text-color)';
+      img.style.fontSize = '18px';
+      img.textContent = (contact.name || 'Group').substring(0, 2).toUpperCase();
+    } else {
+      img.src = '/icons/default-avatar.png';
+    }
+  };
+  
   const contactInfo = document.createElement('div');
-  contactInfo.className = 'contact-info';
-
+  contactInfo.className = contact.isGroup ? 'group-info' : 'contact-info';
+  
   const nameSpan = document.createElement('span');
-  nameSpan.className = 'contact-name';
-  nameSpan.textContent = contact.displayName;
+  nameSpan.className = contact.isGroup ? 'group-name' : 'contact-name';
+  nameSpan.textContent = contact.displayName || shortenIdentifier(contact.pubkey || contact.id);
   contactInfo.appendChild(nameSpan);
 
-  // Add last message time if available
-  const lastMessageTime = contactManager.lastMessageTimes.get(contact.pubkey);
-  if (lastMessageTime) {
-    const timeSpan = document.createElement('span');
-    timeSpan.className = 'last-message-time';
-    timeSpan.textContent = formatTime(lastMessageTime);
-    contactInfo.appendChild(timeSpan);
-  }
-
-  if (!contact.isChannel) {
+  if (contact.isGroup) {
+    const membersSpan = document.createElement('span');
+    membersSpan.className = 'group-members';
+    membersSpan.textContent = `${contact.members?.length || 0} members`;
+    contactInfo.appendChild(membersSpan);
+  } else if (!contact.isChannel) {
     const indicator = document.createElement('div');
     indicator.className = `online-indicator ${contact.isOnline ? 'online' : ''}`;
     contactInfo.appendChild(indicator);
@@ -620,7 +723,7 @@ function createContactElement(contact) {
 
   element.appendChild(img);
   element.appendChild(contactInfo);
-  
+   
   // Add click handler
   element.addEventListener('click', async () => {
     const chatHeader = document.getElementById('chatHeader');
@@ -639,6 +742,9 @@ function createContactElement(contact) {
     if (contact.isChannel) {
       messageInputContainer.style.display = 'none';
       await handleStreamChat(contact.pubkey, chatHeader, chatContainer);
+    } else if (contact.isGroup) {
+      messageInputContainer.style.display = 'flex';
+      await initializeGroupChat(contact.id);
     } else {
       messageInputContainer.style.display = 'flex';
       currentChatPubkey = contact.pubkey;
@@ -655,31 +761,82 @@ function createContactElement(contact) {
     
     const contextMenu = document.createElement('div');
     contextMenu.className = 'context-menu';
-    contextMenu.innerHTML = `
-      <div class="context-menu-item">See Profile</div>
-    `;
+
+    if (contact.isGroup) {
+      const currentUser = await auth.getCurrentUser();
+      // Ensure we're comparing lowercase pubkeys
+      const isCreator = currentUser && 
+                       contact.creator?.toLowerCase() === currentUser.pubkey?.toLowerCase();
+      
+      contextMenu.innerHTML = `
+        <div class="context-menu-item" data-action="info">Group Info</div>
+        ${isCreator ? '<div class="context-menu-item" data-action="edit">Edit Group</div>' : ''}
+        <div class="context-menu-item" data-action="leave">Leave Group</div>
+      `;
+    } else {
+      contextMenu.innerHTML = `
+        <div class="context-menu-item" data-action="profile">See Profile</div>
+      `;
+    }
     
     // Position the menu at cursor
     contextMenu.style.left = `${e.pageX}px`;
     contextMenu.style.top = `${e.pageY}px`;
-    
+
     document.body.appendChild(contextMenu);
+
+    // Adjust position if menu goes off screen
+    const rect = contextMenu.getBoundingClientRect();
+    const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+
+    if (rect.right > windowWidth) {
+      contextMenu.style.left = `${windowWidth - rect.width - 5}px`;
+    }
+    if (rect.bottom > windowHeight) {
+      contextMenu.style.top = `${windowHeight - rect.height - 5}px`;
+    }
     
-    // Handle menu item clicks
-    const profileItem = contextMenu.querySelector('.context-menu-item');
-    profileItem.addEventListener('click', async () => {
-      const metadata = await getUserMetadata(contact.pubkey);
-      showProfileModal(contact.pubkey, metadata);
-      contextMenu.remove();
+    // Handle menu item clicks with direct event delegation
+    const menuItems = contextMenu.querySelectorAll('.context-menu-item');
+    menuItems.forEach(item => {
+      item.addEventListener('click', async () => {
+        const action = item.dataset.action;
+        if (!action) return;
+
+        switch (action) {
+          case 'info':
+            await showGroupInfoModal(contact);
+            break;
+          case 'edit':
+            const currentUser = await auth.getCurrentUser();
+            if (currentUser && contact.creator === currentUser.pubkey) {
+              await showGroupEditModal(contact);
+            }
+            break;
+          case 'leave':
+            await showLeaveGroupModal(contact);
+            break;
+          case 'profile':
+            const metadata = await getUserMetadata(contact.pubkey);
+            showProfileModal(contact.pubkey, metadata);
+            break;
+        }
+        contextMenu.remove();
+      });
     });
     
     // Close menu when clicking outside
-    document.addEventListener('click', function closeMenu() {
-      contextMenu.remove();
-      document.removeEventListener('click', closeMenu);
-    });
+    setTimeout(() => {
+      document.addEventListener('click', function closeMenu(e) {
+        if (!contextMenu.contains(e.target) && e.target !== element) {
+          contextMenu.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      });
+    }, 0);
   });
-
+  
   return element;
 }
 
@@ -707,7 +864,15 @@ async function selectContact(pubkey) {
 }
 
 async function initializeChat(pubkey) {
+  // Clear group context and set DM context
   currentChatPubkey = pubkey;
+  currentGroupId = null;
+  
+  // Also clear group context in group message manager
+  if (window.groupMessageManager) {
+    window.groupMessageManager.currentGroupId = null;
+  }
+
   const chatContainer = document.getElementById('chatContainer');
   const chatHeader = document.getElementById('chatHeader');
   
@@ -800,8 +965,11 @@ async function renderMessages(messages) {
   messageList.innerHTML = '';
   const currentUser = await auth.getCurrentUser();
   
+  // Filter out any group messages that might have gotten mixed in
+  const dmMessages = messages.filter(msg => !msg.groupId && msg.type === 'dm');
+  
   // Sort messages by timestamp
-  const sortedMessages = messages.sort((a, b) => a.created_at - b.created_at);
+  const sortedMessages = dmMessages.sort((a, b) => a.created_at - b.created_at);
   
   // Create a document fragment for better performance
   const fragment = document.createDocumentFragment();
@@ -811,6 +979,9 @@ async function renderMessages(messages) {
     const isSent = message.pubkey === currentUser?.pubkey;
     messageElement.className = `message ${isSent ? 'sent' : 'received'}`;
     messageElement.setAttribute('data-message-id', message.id);
+    messageElement.setAttribute('data-pubkey', message.pubkey);
+    messageElement.setAttribute('data-timestamp', message.created_at);
+    messageElement.setAttribute('data-type', 'dm');
     
     const bubbleElement = document.createElement('div');
     bubbleElement.className = 'message-bubble';
@@ -818,39 +989,14 @@ async function renderMessages(messages) {
     // Render message content (text, media, etc)
     await renderMessageContent(message, bubbleElement);
     
-    // Add zap container for received messages
-    if (!isSent) {
-      const metadata = await getUserMetadata(message.pubkey);
-      if (metadata?.lud16 || metadata?.lightning) {
-        const zapContainer = document.createElement('div');
-        zapContainer.className = 'zap-container';
-        zapContainer.innerHTML = `
-          <button class="zap-button" title="Send Zap">⚡</button>
-          <span class="zap-amount">${message.zapAmount || ''}</span>
-        `;
-        
-        bubbleElement.style.position = 'relative';
-        
-        const zapButton = zapContainer.querySelector('.zap-button');
-        zapButton.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          await showZapModal(message, metadata, zapContainer);
-        });
-        
-        bubbleElement.appendChild(zapContainer);
-      }
-    }
-    
     messageElement.appendChild(bubbleElement);
     fragment.appendChild(messageElement);
   }
-
-  // Append all messages at once
+  
   messageList.appendChild(fragment);
   
-  // Call loadLinkPreviews after messages are rendered
+  // Process link previews for all messages
   await loadLinkPreviews();
-  
 }
 
 function renderStreamContent(channel) {
@@ -924,9 +1070,15 @@ function updateChatHeader(header, contact) {
   header.innerHTML = `
     <img src="${contact.avatarUrl || '/icons/default-avatar.png'}" 
          alt="${contact.displayName}" 
-         class="contact-avatar">
-    <span>${contact.displayName}</span>
-    ${contact.isChannel && contact.about ? `<div class="channel-description">${contact.about}</div>` : ''}
+         class="${contact.isGroup ? 'group-avatar' : 'contact-avatar'}">
+    <div class="${contact.isGroup ? 'group-header-info' : 'contact-info'}">
+      <span class="${contact.isGroup ? 'group-header-name' : 'contact-name'}">${contact.displayName}</span>
+      ${contact.isGroup 
+        ? `<span class="group-header-members">${contact.members?.length || 0} members</span>`
+        : contact.isChannel && contact.about 
+          ? `<span class="contact-status">${contact.about}</span>`
+          : ''}
+    </div>
   `;
 }
 
@@ -946,97 +1098,141 @@ async function sendMessage() {
   const messageInput = document.getElementById('messageInput');
   const content = messageInput.value.trim();
   
-  if (!content || !currentChatPubkey) return;
+  if (!content) return;
   
   try {
-    messageInput.value = '';
-    const messageList = document.querySelector('.message-list');
-    if (!messageList) return;
-    
-    const currentUser = await auth.getCurrentUser();
-    const messageElement = document.createElement('div');
-    messageElement.className = 'message sent';
-    const bubbleElement = document.createElement('div');
-    bubbleElement.className = 'message-bubble';
-    
-    // Extract URLs from the content
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = content.match(urlRegex);
-    
-    if (urls) {
-      // Check each URL for image links
-      for (const url of urls) {
-        const decodedUrl = decodeURIComponent(url);
-        if (decodedUrl.includes('image.nostr.build') || decodedUrl.includes('blossom.azzamo.net')) {
-          // Extract the base URL without query parameters and clean it
-          const baseUrl = decodedUrl.split('#')[0].split('?')[0];
-          // Remove any trailing punctuation or text
-          const cleanUrl = baseUrl.replace(/[.,!?]$/, '');
-          
-          // Split content into text and URL parts
-          const parts = content.split(url);
-          const textBefore = parts[0];
-          const textAfter = parts.slice(1).join(url);
-          
-          // Add default extension for blossom.azzamo.net if no extension present
-          let mediaHtml = '';
-          if (cleanUrl.includes('blossom.azzamo.net') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
-          } else if (cleanUrl.includes('image.nostr.build') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
-          } else {
-            mediaHtml = `<img src="${cleanUrl}" class="message-media" loading="lazy" alt="Shared image">`;
-          }
-          
-          bubbleElement.innerHTML = `
-            ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
-            <div class="media-container">
-              ${mediaHtml}
-            </div>
-            ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
-          break;
-        }
-      }
-      
-      // Handle Giphy URLs if no image link was found
-      if (!bubbleElement.innerHTML && content.includes('giphy.com')) {
-        const gifUrl = content.match(/(https?:\/\/[^\s]+giphy\.com[^\s]+)/i)?.[0];
-        if (gifUrl) {
-          // Split content into text and URL parts
-          const parts = content.split(gifUrl);
-          const textBefore = parts[0];
-          const textAfter = parts.slice(1).join(gifUrl);
-          
-          bubbleElement.innerHTML = `
-            ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
-            <div class="media-container">
-              <img src="${gifUrl}" class="message-media" loading="lazy" alt="GIF">
-            </div>
-            ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
-        }
-      }
-    }
-    
-    // If no media content was added, treat as plain text
-    if (!bubbleElement.innerHTML) {
-      bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content)}</div>`;
+    const selectedContact = document.querySelector('.contact-item.selected');
+    if (!selectedContact) {
+      throw new Error('No chat selected');
     }
 
-    if (messageList.innerHTML === '<div class="no-messages">No messages yet</div>') {
-      messageList.innerHTML = '';
+    const isGroup = selectedContact.classList.contains('group');
+    const targetId = selectedContact.dataset.pubkey;
+
+    // Store content and clear input immediately
+    messageInput.value = '';
+
+    if (isGroup) {
+      // Use the stored groupId for sending group messages
+      if (!currentGroupId) {
+        throw new Error('No group context found');
+      }
+      await sendGroupMessage(currentGroupId, content);
+      return;
     }
-    
-    messageElement.appendChild(bubbleElement);
-    messageList.appendChild(messageElement);
-    messageElement.scrollIntoView({ behavior: 'smooth' });
-    
-    const result = await messageManager.sendMessage(currentChatPubkey, content);
-    
-    contactManager.updateLastMessageTime(currentChatPubkey, result.created_at);
-    renderContactList(Array.from(contactManager.contacts.values()));
-    
+
+    // DM handling only from here
+    const message = await messageManager.sendMessage(targetId, content);
+    if (!message) {
+      throw new Error('Failed to send DM');
+      messageInput.value = content; // Restore content if failed
+      return;
+    }
+
+    const messageList = document.querySelector('.message-list');
+    if (messageList) {
+      const messageElement = document.createElement('div');
+      messageElement.className = 'message sent';  // No group-message class for DMs
+      messageElement.setAttribute('data-message-id', message.id);
+      messageElement.setAttribute('data-pubkey', message.pubkey);
+      messageElement.setAttribute('data-timestamp', Math.floor(Date.now() / 1000));
+      messageElement.setAttribute('data-type', 'dm');  // Explicitly mark as DM
+      messageElement.setAttribute('data-recipient', targetId);  // Add recipient for DMs
+
+      const bubbleElement = document.createElement('div');
+      bubbleElement.className = 'message-bubble';
+
+      await renderMessageContent({ 
+        content: content,
+        pubkey: (await auth.getCurrentUser()).pubkey,
+        recipientPubkey: targetId,
+        type: 'dm'
+      }, bubbleElement);
+
+      messageElement.appendChild(bubbleElement);
+      messageList.appendChild(messageElement);
+
+      // Process link previews for the new message
+      await loadLinkPreviews();
+    }
   } catch (error) {
-    console.error('Failed to send message:', error);
+    console.error('Error sending message:', error);
+    showErrorMessage('Failed to send message: ' + error.message);
+    // Restore the message input if sending failed
+    messageInput.value = content;
+  }
+}
+
+/**
+ * Sends a message to a group chat
+ * @param {string} groupId - The ID of the group to send the message to
+ */
+async function sendGroupMessage(groupId, content) {
+  if (!content) return;
+  
+  const messageInput = document.getElementById('messageInput');
+  
+  try {
+    // Send the message through the group message manager
+    const message = await window.groupMessageManager.sendGroupMessage(groupId, content);
+    
+    // Add message to UI immediately
+    const messageList = document.querySelector('.message-list');
+    if (messageList) {
+      const messageElement = document.createElement('div');
+      messageElement.className = 'message group-message sent';
+      messageElement.setAttribute('data-message-id', message.id);
+      messageElement.setAttribute('data-pubkey', message.pubkey);
+      messageElement.setAttribute('data-group-id', groupId);
+      messageElement.setAttribute('data-type', 'group');
+      messageElement.setAttribute('data-timestamp', message.created_at);
+
+      const bubbleElement = document.createElement('div');
+      bubbleElement.className = 'message-bubble';
+
+      // Check for GIF/media content first
+      const gifMatch = content.match(/https:\/\/[^\s]+\.(gif|giphy\.com|tenor\.com|media\.nostr\.build|image\.nostr\.build|cdn\.azzamo\.net|instagram\.com|tiktok\.com)[^\s]*/i);
+      
+      if (gifMatch) {
+        const cleanGifUrl = gifMatch[0].split('?')[0].replace(/[.,!?]$/, '');
+        const mediaContainer = document.createElement('div');
+        mediaContainer.className = 'media-container';
+        mediaContainer.innerHTML = `<img src="${cleanGifUrl}" class="message-media" loading="lazy" alt="Media">`;
+        bubbleElement.appendChild(mediaContainer);
+
+        // Add remaining text if any
+        const remainingText = content.replace(gifMatch[0], '').trim();
+        if (remainingText) {
+          const textDiv = document.createElement('div');
+          textDiv.className = 'message-text';
+          textDiv.innerHTML = linkifyText(remainingText);
+          bubbleElement.appendChild(textDiv);
+        }
+      } else {
+        // Add preview container for other types of previews
+        const previewContainer = document.createElement('div');
+        previewContainer.className = 'message-preview';
+        bubbleElement.appendChild(previewContainer);
+
+        // Add text content
+        const textContent = document.createElement('div');
+        textContent.className = 'message-text';
+        textContent.innerHTML = linkifyText(content);
+        bubbleElement.appendChild(textContent);
+      }
+
+      messageElement.appendChild(bubbleElement);
+      messageList.appendChild(messageElement);
+
+      // Process other link previews if not a GIF/media
+      if (!gifMatch && typeof loadLinkPreviews === 'function') {
+        await loadLinkPreviews();
+      }
+    }
+  } catch (error) {
+    console.error('Error sending group message:', error);
+    showErrorMessage('Failed to send message');
+    messageInput.value = content; // Restore content if failed
   }
 }
 
@@ -1064,77 +1260,101 @@ async function renderMessageContent(message, bubbleElement) {
   const content = message.content;
   
   if (!content) {
-    console.error('No content in message:', message);
     bubbleElement.innerHTML = '<div class="message-text error">Message could not be decrypted</div>';
     return;
   }
 
-  // Check if content contains a media URL
-  if (typeof content === 'string') {
-    // Extract URLs from the content
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = content.match(urlRegex);
-    
-    if (urls) {
-      // Check each URL for image links
-      for (const url of urls) {
-        const decodedUrl = decodeURIComponent(url);
-        if (decodedUrl.includes('image.nostr.build') || decodedUrl.includes('blossom.azzamo.net')) {
-          // Extract the base URL without query parameters and clean it
-          const baseUrl = decodedUrl.split('#')[0].split('?')[0];
-          // Remove any trailing punctuation or text
-          const cleanUrl = baseUrl.replace(/[.,!?]$/, '');
-          
-          // Split content into text and URL parts
-          const parts = content.split(url);
-          const textBefore = parts[0];
-          const textAfter = parts.slice(1).join(url);
-          
-          // Add default extension for blossom.azzamo.net if no extension present
-          let mediaHtml = '';
-          if (cleanUrl.includes('blossom.azzamo.net') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
-          } else if (cleanUrl.includes('image.nostr.build') && !cleanUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-            mediaHtml = `<img src="${cleanUrl}.jpg" class="message-media" loading="lazy" alt="Shared image">`;
-          } else {
-            mediaHtml = `<img src="${cleanUrl}" class="message-media" loading="lazy" alt="Shared image">`;
-          }
-          
-          bubbleElement.innerHTML = `
-            ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
-            <div class="media-container">
-              ${mediaHtml}
-            </div>
-            ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
-          return;
-        }
-      }
+  // Strict message type validation
+  if (!message.type) {
+    if (message.groupId) {
+      message.type = 'group';
+    } else if (message.recipientPubkey) {
+      message.type = 'dm';
+    } else {
+      return;
     }
-    
-    // Handle Giphy URLs
-    if (content.includes('giphy.com')) {
-      const gifUrl = content.match(/(https?:\/\/[^\s]+giphy\.com[^\s]+)/i)?.[0];
-      if (gifUrl) {
-        // Split content into text and URL parts
-        const parts = content.split(gifUrl);
-        const textBefore = parts[0];
-        const textAfter = parts.slice(1).join(gifUrl);
+  }
+
+  // Validate message type matches context
+  if ((message.type === 'dm' && message.groupId) || 
+      (message.type === 'group' && !message.groupId)) {
+    return;
+  }
+
+  // Extract URLs from the content
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const urls = content.match(urlRegex);
+  
+  if (urls) {
+    // Check each URL for GIFs or media
+    for (const url of urls) {
+      const decodedUrl = decodeURIComponent(url);
+      if (decodedUrl.match(/\.(gif|giphy\.com|tenor\.com)/i) ||
+          decodedUrl.includes('image.nostr.build') || 
+          decodedUrl.includes('cdn.azzamo.net')) {
         
-        bubbleElement.innerHTML = `
-          ${textBefore ? `<div class="message-text">${linkifyText(textBefore)}</div>` : ''}
+        // Extract the base URL without query parameters and clean it
+        const baseUrl = decodedUrl.split('#')[0].split('?')[0];
+        // Remove any trailing punctuation or text
+        const cleanUrl = baseUrl.replace(/[.,!?]$/, '');
+        
+        // Split content into parts around the URL
+        const parts = content.split(url);
+        
+        // Build the message content with text and media
+        let messageHtml = '';
+        
+        // Add text before media if exists and it's not a media URL
+        const textBefore = parts[0].trim();
+        if (textBefore && !textBefore.match(/https?:\/\/(media[0-9]*\.)?/)) {
+          messageHtml += `<div class="message-text">${linkifyText(textBefore)}</div>`;
+        }
+        
+        // Add the media
+        messageHtml += `
           <div class="media-container">
-            <img src="${gifUrl}" class="message-media" loading="lazy" alt="GIF">
-          </div>
-          ${textAfter ? `<div class="message-text">${linkifyText(textAfter)}</div>` : ''}`;
+            <img src="${cleanUrl}" class="message-media" loading="lazy" alt="Media content" onerror="this.style.display='none'">
+          </div>`;
+        
+        // Add text after media if exists and it's not a media URL
+        const remainingText = parts.slice(1).join(url).trim();
+        if (remainingText && !remainingText.match(/https?:\/\/(media[0-9]*\.)?/)) {
+          messageHtml += `<div class="message-text">${linkifyText(remainingText)}</div>`;
+        }
+        
+        bubbleElement.innerHTML = messageHtml;
+
+        // Add zap container for received messages
+        if (message.pubkey !== currentUser?.pubkey) {
+          const metadata = await getUserMetadata(message.pubkey);
+          if (metadata?.lud16 || metadata?.lightning) {
+            const zapContainer = document.createElement('div');
+            zapContainer.className = 'zap-container';
+            zapContainer.innerHTML = `
+              <button class="zap-button" title="Send Zap">⚡</button>
+              <span class="zap-amount">${message.zapAmount || ''}</span>
+            `;
+            
+            bubbleElement.style.position = 'relative';
+            
+            const zapButton = zapContainer.querySelector('.zap-button');
+            zapButton.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              await showZapModal(message, metadata, zapContainer);
+            });
+            
+            bubbleElement.appendChild(zapContainer);
+          }
+        }
         return;
       }
     }
   }
 
-  // Plain text messages
+  // Regular text message
   bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content)}</div>`;
 
-  // Add zap container if message is received
+  // Add zap container for received messages
   if (message.pubkey !== currentUser?.pubkey) {
     const metadata = await getUserMetadata(message.pubkey);
     if (metadata?.lud16 || metadata?.lightning) {
@@ -1207,7 +1427,9 @@ function renderGifs(gifs, container) {
       const messageInput = document.getElementById('messageInput');
       // Clean the URL by removing query parameters
       const cleanUrl = gif.url.split('?')[0];
-      messageInput.value = cleanUrl;
+      // Add space before GIF URL if there's existing text
+      const currentText = messageInput.value;
+      messageInput.value = currentText + (currentText && !currentText.endsWith(' ') ? ' ' : '') + cleanUrl;
       messageInput.focus();
       
       // Remove the GIF picker
@@ -1314,7 +1536,6 @@ document.getElementById('extensionLoginButton').addEventListener('click', async 
 });
 
 async function loadLinkPreviews() {
-  // First handle regular link previews (keep existing code)
   const links = document.querySelectorAll('.message-text a');
   const mediaLinks = Array.from(links).filter(link => {
     const content = link.href || link.textContent;
@@ -1326,15 +1547,17 @@ async function loadLinkPreviews() {
            content.includes('instagram.com') ||
            content.includes('tiktok.com') ||
            content.includes('iris.to') ||
-           // Match both direct identifiers and nostr: protocol
-           content.match(/(?:nostr:)?(?:note|nevent|npub|nprofile|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+/);
+           content.match(/(?:nostr:)?(?:note|nevent|npub|nprofile|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+/) ||
+           content.includes('media.nostr.build') ||
+           content.includes('image.nostr.build') ||
+           content.includes('cdn.azzamo.net');
   });
 
   for (const link of mediaLinks) {
     try {
-      const url = link.href;
       if (link.nextElementSibling?.classList.contains('link-preview')) continue;
 
+      const url = link.href;
       const previewContainer = document.createElement('div');
       previewContainer.className = 'link-preview';
       const previewContent = document.createElement('div');
@@ -1398,44 +1621,6 @@ async function loadLinkPreviews() {
             console.warn('Failed to decode iris.to npub:', error);
           }
         }
-      } else if (url.match(/(?:nostr:)?(?:note|nevent|npub|nprofile|naddr)1/) || url.match(/^(?:note|nevent|npub|nprofile|naddr)1/)) {
-        // Handle both direct identifiers and nostr: protocol
-        const nostrId = url.includes('nostr:') ? 
-          url.split('nostr:')[1] : 
-          (url.match(/(?:note|nevent|npub|nprofile|naddr)1[023456789acdefghjklmnpqrstuvwxyz]+/)?.[0] || url);
-
-        try {
-          const decoded = NostrTools.nip19.decode(nostrId);
-          if (decoded.type === 'note' || decoded.type === 'nevent') {
-            const eventId = decoded.type === 'note' ? decoded.data : decoded.data.id;
-            const event = await pool.get(RELAYS, { ids: [eventId] });
-            if (event) {
-              const metadata = await getUserMetadata(event.pubkey);
-              previewContent.innerHTML = `
-                <div class="nostr-preview">
-                  <div class="nostr-author">
-                    <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Avatar" class="avatar">
-                    <span>${metadata?.name || metadata?.displayName || shortenIdentifier(event.pubkey)}</span>
-                  </div>
-                  <div class="nostr-content">${event.content}</div>
-                </div>`;
-            }
-          } else if (decoded.type === 'npub' || decoded.type === 'nprofile') {
-            const pubkey = decoded.type === 'npub' ? decoded.data : decoded.data.pubkey;
-            const metadata = await getUserMetadata(pubkey);
-            previewContent.innerHTML = `
-              <div class="nostr-preview">
-                <div class="nostr-author">
-                  <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Avatar" class="avatar">
-                  <span>${metadata?.name || metadata?.displayName || shortenIdentifier(pubkey)}</span>
-                </div>
-                ${metadata?.about ? `<div class="nostr-content">${metadata.about}</div>` : ''}
-              </div>`;
-          }
-        } catch (error) {
-          console.warn('Failed to decode nostr link:', error);
-        }
-
       }
 
       if (previewContent.innerHTML) {
@@ -1443,7 +1628,7 @@ async function loadLinkPreviews() {
         link.parentNode.insertBefore(previewContainer, link.nextSibling);
       }
     } catch (error) {
-      console.warn('Failed to create media preview:', error);
+      continue;
     }
   }
 
@@ -1494,12 +1679,14 @@ async function showZapModal(message, metadata, zapContainer) {
               kind: 9734,
               pubkey: (await auth.getCurrentUser()).pubkey,
               created_at: Math.floor(Date.now() / 1000),
-              content: "Zapped a DM",
+              content: message.type === 'group' ? "Zapped a group message" : "Zapped a DM",
               tags: [
                 ['p', message.pubkey],
                 ['e', message.id],
                 ['amount', amount.toString()],
-                ['relays', ...RELAYS]
+                ['relays', ...RELAYS],
+                // Add group context if it's a group message
+                ...(message.type === 'group' && message.groupId ? [['e', message.groupId, '', 'root']] : [])
               ]
             }
           }
@@ -1513,6 +1700,9 @@ async function showZapModal(message, metadata, zapContainer) {
 
         await showQRModal(response.invoice);
         modal.remove();
+        
+        // Show success message
+        showErrorMessage(`Zap invoice created for ${amount} sats! Scan the QR code to pay.`, 'success');
       } catch (error) {
         console.error('Zap failed:', error);
         errorDiv.textContent = `Error Details:\n${error.message}`;
@@ -1599,7 +1789,7 @@ async function showQRModal(invoice) {
         <div id="qrcode-container"></div>
         <div class="invoice-text">${invoice}</div>
         <div class="modal-buttons">
-          <button class="copy-button">Copy Invoice</button>
+          <button class="copy-button">Copy</button>
           <button class="close-button">Close</button>
         </div>
       </div>
@@ -1630,7 +1820,7 @@ async function showQRModal(invoice) {
       copyButton.classList.add('copied');
       
       setTimeout(() => {
-        copyButton.textContent = 'Copy Invoice';
+        copyButton.textContent = 'Copy';
         copyButton.classList.remove('copied');
       }, 2000);
     } catch (error) {
@@ -1665,7 +1855,10 @@ function updateZapAmount(messageId, amount) {
     const zapButton = messageElement.querySelector('.zap-button');
     
     if (zapAmount && zapButton) {
-      zapAmount.textContent = amount;
+      const currentAmount = parseInt(zapAmount.textContent) || 0;
+      const newAmount = currentAmount + parseInt(amount);
+      zapAmount.textContent = newAmount;
+      
       zapButton.classList.add('zap-received');
       setTimeout(() => {
         zapButton.classList.remove('zap-received');
@@ -1684,7 +1877,6 @@ async function loadSearchHistory() {
     const result = await chrome.storage.local.get('searchHistory');
     searchHistory = result.searchHistory || [];
   } catch (error) {
-    console.error('Failed to load search history:', error);
     searchHistory = [];
   }
 }
@@ -1910,6 +2102,7 @@ async function showProfileModal(pubkey, metadata) {
         ` : ''}
       </div>
       <div class="modal-buttons">
+        <button class="copy-button">Copy</button>
         <button class="close-button">Close</button>
       </div>
     </div>
@@ -1923,7 +2116,6 @@ async function showProfileModal(pubkey, metadata) {
     button.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(button.dataset.value);
-        const originalText = button.textContent;
         button.textContent = '✓';
         button.classList.add('copied');
         setTimeout(() => {
@@ -1948,6 +2140,183 @@ async function showProfileModal(pubkey, metadata) {
       modal.remove();
     }
   });
+}
+
+async function initializeGroupChat(groupId) {
+  // Set the current group ID and clear DM context
+  currentGroupId = groupId;
+  currentChatPubkey = null;
+  
+  // Also set group context in group message manager
+  if (window.groupMessageManager) {
+    window.groupMessageManager.currentGroupId = groupId;
+  }
+
+  const chatContainer = document.getElementById('chatContainer');
+  const messageInput = document.getElementById('messageInput');
+  const sendButton = document.getElementById('sendButton');
+  const emojiButton = document.getElementById('emojiButton');
+  const gifButton = document.getElementById('gifButton');
+
+  // Clear existing chat and show loading spinner
+  chatContainer.innerHTML = `
+    <div class="message-container">
+      <div class="message-list">
+        <div class="chat-loading-spinner">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Get group info
+  const group = groupContactManager.groups.get(groupId);
+  if (!group) {
+    console.error('Group not found:', groupId);
+    return;
+  }
+
+  // Update header
+  const chatHeader = document.getElementById('chatHeader');
+  chatHeader.innerHTML = `
+    <div class="group-header">
+      <img src="${(group.picture || '').trim() || 'icons/default-group.png'}" 
+           alt="${group.name || 'Group'}" 
+           onerror="this.src='icons/default-group.png'" 
+           class="group-avatar">
+      <div class="group-header-info">
+        <div class="group-header-name">${group.name || 'Unnamed Group'}</div>
+        <div class="group-header-members">${group.members?.length || 0} members</div>
+      </div>
+    </div>
+  `;
+
+  // Fetch and render messages
+  const messages = await groupMessageManager.fetchGroupMessages(groupId);
+  if (messages && messages.length > 0) {
+    // Update last message time for the group
+    const lastMessage = messages.reduce((latest, msg) => 
+      msg.created_at > latest.created_at ? msg : latest
+    );
+    
+    group.lastMessage = lastMessage;
+    await renderGroupMessages(messages, groupId);
+  } else {
+    chatContainer.querySelector('.message-list').innerHTML = '<div class="no-messages">No messages yet</div>';
+  }
+
+  // Enable input for group chat
+  messageInput.disabled = false;
+  sendButton.disabled = false;
+  emojiButton.disabled = false;
+  gifButton.disabled = false;
+
+  // Add message handlers
+  messageInput.addEventListener('keypress', async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const content = messageInput.value.trim();
+      if (content) {
+        await sendGroupMessage(currentGroupId, content);
+      }
+    }
+  });
+
+  sendButton.addEventListener('click', async () => {
+    const content = messageInput.value.trim();
+    if (content) {
+      await sendGroupMessage(currentGroupId, content);
+    }
+  });
+  
+  // Initialize emoji picker and GIF button
+  if (emojiButton && messageInput) {
+    initializeEmojiPicker(emojiButton, messageInput);
+  }
+  initializeGifButton();
+}
+
+async function renderGroupMessages(messages, groupId) {
+  const chatContainer = document.getElementById('chatContainer');
+  const messageList = chatContainer.querySelector('.message-list');
+  messageList.innerHTML = '';
+
+  const currentUser = await auth.getCurrentUser();
+  if (!currentUser) return;
+
+  // Filter messages for this specific group and deduplicate by message ID
+  const uniqueMessages = messages.reduce((acc, msg) => {
+    if (msg.groupId === groupId && !acc.find(m => m.id === msg.id)) {
+      acc.push(msg);
+    }
+    return acc;
+  }, []);
+  
+  const sortedMessages = [...uniqueMessages].sort((a, b) => a.created_at - b.created_at);
+  
+  // Create a document fragment for better performance
+  const fragment = document.createDocumentFragment();
+  
+  for (const message of sortedMessages) {
+    const messageElement = document.createElement('div');
+    const isSent = message.pubkey === currentUser.pubkey;
+    messageElement.className = `message group-message ${isSent ? 'sent' : 'received'}`;
+    messageElement.setAttribute('data-message-id', message.id);
+    messageElement.setAttribute('data-pubkey', message.pubkey);
+    messageElement.setAttribute('data-group-id', groupId);
+    messageElement.setAttribute('data-timestamp', message.created_at);
+    messageElement.setAttribute('data-type', 'group');  // Explicitly mark as group message
+    
+    // Add author name only for received messages
+    if (!isSent) {
+      const authorMetadata = await getUserMetadata(message.pubkey);
+      const authorName = authorMetadata?.name || authorMetadata?.displayName || shortenIdentifier(message.pubkey);
+      const authorDiv = document.createElement('div');
+      authorDiv.className = 'group-message-author';
+      authorDiv.textContent = authorName;
+      messageElement.appendChild(authorDiv);
+
+      // Add zap container for messages from other users who have lightning address
+      if (authorMetadata?.lud16 || authorMetadata?.lightning) {
+        const zapContainer = document.createElement('div');
+        zapContainer.className = 'zap-container';
+        zapContainer.innerHTML = `
+          <button class="zap-button" title="Send Zap">⚡</button>
+          <span class="zap-amount">${message.zapAmount || ''}</span>
+        `;
+        
+        messageElement.style.position = 'relative';
+        
+        const zapButton = zapContainer.querySelector('.zap-button');
+        zapButton.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await showZapModal(message, authorMetadata, zapContainer);
+        });
+        
+        messageElement.appendChild(zapContainer);
+      }
+    }
+    
+    const bubbleElement = document.createElement('div');
+    bubbleElement.className = 'message-bubble';
+    
+    // Use renderMessageContent for consistent rendering
+    await renderMessageContent({ 
+      content: message.content,
+      pubkey: message.pubkey,
+      groupId: groupId,
+      type: 'group'  // Explicitly mark as group message
+    }, bubbleElement);
+    
+    messageElement.appendChild(bubbleElement);
+    fragment.appendChild(messageElement);
+  }
+
+  // Append all messages at once
+  messageList.appendChild(fragment);
+
+  // Process link previews for all messages after rendering
+  await loadLinkPreviews();
 }
 
 /**
@@ -1980,3 +2349,746 @@ async function showProfileModal(pubkey, metadata) {
  * @requires messageManager
  * @requires userMetadata
  */
+
+async function initializeApp() {
+  try {
+    await auth.init();
+    const currentUser = await auth.getCurrentUser();
+    
+    if (currentUser) {
+      // Initialize contacts
+      const contacts = await contactManager.init(currentUser.pubkey);
+      
+      // Initialize groups
+      if (window.groupContactManager) {
+        await window.groupContactManager.init();
+      } else {
+        console.error('groupContactManager not initialized');
+      }
+
+      // Render contacts and groups
+      await renderContactList(contacts);
+      
+      hideLoadingIndicator();
+      hideLoginScreen();
+    } else {
+      showLoginScreen();
+    }
+  } catch (error) {
+    console.error('Initialization error:', error);
+    showErrorMessage('Failed to initialize app');
+  }
+}
+
+// Add these functions at the appropriate location in popup.js
+async function showGroupInfoModal(group) {
+  console.log('Opening info modal for group:', group);
+  const modal = document.createElement('div');
+  modal.className = 'modal group-modal';
+  
+  const name = group.name || group.displayName || 'Unnamed Group';
+  const picture = group.picture || group.avatarUrl || 'icons/default-group.png';
+  const about = group.about || '';
+  const memberCount = Array.isArray(group.members) ? group.members.length : 0;
+  const createdDate = group.created_at ? new Date(group.created_at * 1000).toLocaleString() : 'Unknown';
+  const npub = window.NostrTools.nip19.npubEncode(group.id);
+  
+  modal.innerHTML = `
+    <div class="modal-content profile-modal-content">
+      <div class="profile-header">
+        <img src="${picture}" alt="${name}" class="profile-avatar">
+        <h3>${name}</h3>
+        ${about ? `<p class="group-about">${about}</p>` : ''}
+      </div>
+      <div class="profile-details">
+        <div class="profile-field">
+          <label>Group ID</label>
+          <div class="copyable-field">
+            <input type="text" readonly value="${npub}">
+            <button class="copy-button" data-value="${npub}" title="Copy">📋</button>
+          </div>
+        </div>
+        <div class="profile-field">
+          <label>Created</label>
+          <div class="group-about">${createdDate}</div>
+        </div>
+        <div class="profile-field">
+          <label>Members (${memberCount})</label>
+          <div class="group-members-list">
+            ${await Promise.all(group.members.map(async (member) => {
+              const metadata = await getUserMetadata(member);
+              const isCreator = member.toLowerCase() === group.creator?.toLowerCase();
+              return `
+                <div class="group-${isCreator ? 'creator' : 'member'}">
+                  <img src="${metadata?.picture || 'icons/default-avatar.png'}" 
+                       alt="${metadata?.name || 'Member'}" 
+                       class="member-avatar">
+                  <span>${metadata?.name || metadata?.displayName || shortenIdentifier(member)}</span>
+                  ${isCreator ? '<span class="creator-badge">👑 Creator</span>' : ''}
+                </div>
+              `;
+            })).then(members => members.join(''))}
+          </div>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="copy-button">Copy</button>
+        <button class="close-button">Close</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  
+  // Add copy functionality
+  const copyButtons = modal.querySelectorAll('.copy-button');
+  copyButtons.forEach(button => {
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.value);
+        const originalText = button.textContent;
+        button.textContent = '✓';
+        button.classList.add('copied');
+        setTimeout(() => {
+          button.textContent = '📋';
+          button.classList.remove('copied');
+        }, 2000);
+      } catch (error) {
+        console.error('Failed to copy:', error);
+        showErrorMessage('Failed to copy to clipboard');
+      }
+    });
+  });
+  
+  const closeBtn = modal.querySelector('.close-button');
+  closeBtn.onclick = () => modal.remove();
+  
+  window.onclick = (event) => {
+    if (event.target === modal) {
+      modal.remove();
+    }
+  };
+}
+
+async function showGroupEditModal(group) {
+  console.log('Opening edit modal for group:', group);
+  const modal = document.createElement('div');
+  modal.className = 'modal group-modal';
+  
+  const name = group.name || group.displayName || '';
+  const picture = group.picture || group.avatarUrl || '';
+  const about = group.about || '';
+  
+  modal.innerHTML = `
+    <div class="modal-content profile-modal-content">
+      <div class="profile-header">
+        <img src="${picture || 'icons/default-group.png'}" alt="${name}" class="profile-avatar">
+        <h3>Edit Group</h3>
+      </div>
+      <form id="edit-group-form" class="profile-details">
+        <div class="profile-field">
+          <label for="group-name">Name</label>
+          <div class="copyable-field">
+            <input type="text" id="group-name" value="${name}" required>
+          </div>
+        </div>
+        <div class="profile-field">
+          <label for="group-about">About</label>
+          <div class="copyable-field">
+            <textarea id="group-about" rows="3">${about}</textarea>
+          </div>
+        </div>
+        <div class="profile-field">
+          <label for="group-picture">Picture URL</label>
+          <div class="copyable-field">
+            <input type="url" id="group-picture" value="${picture}">
+          </div>
+        </div>
+        <div class="modal-buttons">
+          <button type="button" class="close-button">Cancel</button>
+          <button type="submit" class="primary-button">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  
+  const form = modal.querySelector('#edit-group-form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const newName = form.querySelector('#group-name').value;
+    const newAbout = form.querySelector('#group-about').value;
+    const newPicture = form.querySelector('#group-picture').value;
+    
+    try {
+      const event = {
+        kind: 41,
+        content: JSON.stringify({ 
+          name: newName, 
+          about: newAbout, 
+          picture: newPicture,
+          updated_at: Math.floor(Date.now() / 1000)
+        }),
+        tags: [
+          ['e', group.id],
+          ...group.members.map(m => ['p', m])
+        ]
+      };
+      
+      await window.pool.publish(event);
+      modal.remove();
+    } catch (error) {
+      console.error('Error updating group:', error);
+      alert('Failed to update group');
+    }
+  };
+  
+  const closeBtn = modal.querySelector('.close-button');
+  closeBtn.onclick = () => modal.remove();
+  
+  window.onclick = (event) => {
+    if (event.target === modal) {
+      modal.remove();
+    }
+  };
+}
+
+async function leaveGroup(groupId) {
+  try {
+    const group = window.groupContactManager.groups.get(groupId);
+    if (!group) {
+      console.error('Group not found:', groupId);
+      return;
+    }
+
+    const currentUser = await window.auth.getCurrentUser();
+    if (!currentUser?.pubkey) {
+      console.error('User not authenticated');
+      return;
+    }
+
+    // Check if we have connected relays
+    const relays = window.relayPool.getConnectedRelays();
+    if (!relays || relays.length === 0) {
+      console.error('No connected relays');
+      return;
+    }
+
+    // Create leave event
+    const event = {
+      kind: 41,
+      pubkey: currentUser.pubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['e', groupId], // Reference to the group
+        ['p', currentUser.pubkey], // Reference to self
+        ['client', 'tides']
+      ],
+      content: JSON.stringify({
+        action: 'leave',
+        updated_at: Math.floor(Date.now() / 1000)
+      })
+    };
+
+    // Sign the event
+    event.id = nostrCore.getEventHash(event);
+    if (currentUser.type === 'NIP-07') {
+      event.sig = await window.nostr.signEvent(event);
+    } else {
+      event.sig = nostrCore.getSignature(event, currentUser.privkey);
+    }
+
+    console.log('Publishing leave event:', event);
+
+    // Publish to all connected relays
+    try {
+      await Promise.race([
+        window.groupContactManager.pool.publish(relays, event),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 5000))
+      ]);
+      console.log('Leave event published successfully');
+
+      // Add to leftGroups set and remove from groups map
+      window.groupContactManager.leftGroups.add(groupId);
+      window.groupContactManager.groups.delete(groupId);
+
+      // Clear chat if it's the current group
+      const currentChat = document.querySelector('.chat-container');
+      if (currentChat && currentChat.dataset.id === groupId) {
+        clearChat();
+      }
+
+      // Remove any open modals
+      document.querySelectorAll('.leave-group-modal').forEach(modal => modal.remove());
+      document.querySelectorAll('.modal').forEach(modal => modal.remove());
+
+      // Update only the groups section
+      const groupContent = document.getElementById('groupsContent');
+      if (groupContent) {
+        // Clear existing content
+        groupContent.innerHTML = '';
+
+        // Add create group button
+        const createGroupButton = document.createElement('button');
+        createGroupButton.className = 'create-group-button';
+        createGroupButton.innerHTML = '<span>Create New Group</span>';
+        groupContent.appendChild(createGroupButton);
+
+        // Initialize the create group button
+        initializeCreateGroupButton();
+
+        // Add remaining groups
+        if (window.groupContactManager) {
+          const userGroups = Array.from(window.groupContactManager.groups.values())
+            .filter(group => !window.groupContactManager.leftGroups.has(group.id))
+            .sort((a, b) => {
+              const timeA = a.lastMessage?.created_at || a.created_at;
+              const timeB = b.lastMessage?.created_at || b.created_at;
+              return timeB - timeA;
+            });
+
+          if (userGroups && userGroups.length > 0) {
+            userGroups.forEach(group => {
+              const groupElement = createContactElement({
+                pubkey: group.id,
+                id: group.id,
+                displayName: group.name || 'Unnamed Group',
+                avatarUrl: (group.picture || '').trim() || 'icons/default-group.png',
+                about: group.about || '',
+                created_at: group.created_at,
+                isGroup: true,
+                members: group.members || [],
+                creator: group.creator,
+                name: group.name || 'Unnamed Group',
+                picture: (group.picture || '').trim() || 'icons/default-group.png'
+              });
+              groupContent.appendChild(groupElement);
+            });
+          } else {
+            const noGroupsMessage = document.createElement('div');
+            noGroupsMessage.className = 'no-groups-message';
+            noGroupsMessage.textContent = 'No groups yet';
+            groupContent.appendChild(noGroupsMessage);
+          }
+        }
+    }
+
+    showErrorMessage('Successfully left the group', 'success');
+    return true;
+    } catch (error) {
+      console.error('Error publishing leave event:', error);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error leaving group:', error);
+    throw error;
+  }
+}
+
+async function showLeaveGroupModal(group) {
+  const modal = document.createElement('div');
+  modal.className = 'leave-group-modal';
+  
+  modal.innerHTML = `
+    <div class="leave-group-modal-content">
+      <div class="leave-group-header">
+        <img src="${group.picture || 'icons/default-group.png'}" alt="${group.name || 'Group'}" class="profile-avatar">
+        <h3>Leave Group</h3>
+      </div>
+      <p>Are you sure you want to leave "${group.name || 'this group'}"?</p>
+      <div class="leave-group-buttons">
+        <button class="cancel-button">Cancel</button>
+        <button class="confirm-button">Leave Group</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  
+  const confirmBtn = modal.querySelector('.confirm-button');
+  const cancelBtn = modal.querySelector('.cancel-button');
+  
+  confirmBtn.onclick = async () => {
+    try {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Leaving...';
+      await leaveGroup(group.id);
+      modal.remove(); // Explicitly remove modal after successful leave
+    } catch (error) {
+      console.error('Failed to leave group:', error);
+      showErrorMessage('Failed to leave group: ' + error.message);
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Leave Group';
+    }
+  };
+  
+  cancelBtn.onclick = () => modal.remove();
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+}
+
+// Remove the standalone event listener
+document.querySelector('.create-group-button')?.addEventListener('click', () => {
+  // ... remove this entire block ...
+});
+
+// Remove the delegated event listener
+document.addEventListener('DOMContentLoaded', () => {
+  // ... remove this entire block ...
+});
+
+// Update the initializeCreateGroupButton function to handle multiple initializations
+function initializeCreateGroupButton() {
+  // Wait for DOM to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeCreateGroupButton);
+    return;
+  }
+
+  // Find the button
+  const createGroupButton = document.querySelector('.create-group-button');
+  if (!createGroupButton) {
+    // Button not found, try again in a moment as it might be added dynamically
+    setTimeout(initializeCreateGroupButton, 500);
+    return;
+  }
+
+  // Remove any existing click listeners to prevent duplicates
+  const newButton = createGroupButton.cloneNode(true);
+  createGroupButton.parentNode.replaceChild(newButton, createGroupButton);
+
+  newButton.addEventListener('click', () => {
+    showCreateGroupModal();
+  });
+}
+
+function showCreateGroupModal() {
+    const modal = document.createElement('div');
+    modal.className = 'create-group-modal';
+    
+    modal.innerHTML = `
+      <div class="create-group-modal-content">
+        <div class="create-group-header">
+        <img src="icons/default-group.png" alt="Group" class="profile-avatar">
+          <h3>Create New Group</h3>
+        </div>
+      <form id="create-group-form">
+          <div class="create-group-field">
+          <label for="group-name">Group Name</label>
+              <input type="text" id="group-name" required>
+          </div>
+          <div class="create-group-field">
+          <label for="group-about">Description</label>
+              <textarea id="group-about" rows="3"></textarea>
+          </div>
+          <div class="create-group-field">
+          <label for="group-picture">Picture URL (optional)</label>
+              <input type="url" id="group-picture">
+          </div>
+          <div class="create-group-buttons">
+            <button type="button" class="cancel-button">Cancel</button>
+            <button type="submit" class="submit-button">Create Group</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    
+    const form = modal.querySelector('#create-group-form');
+    const submitBtn = modal.querySelector('.submit-button');
+  const cancelBtn = modal.querySelector('.cancel-button');
+    
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating...';
+      
+    const name = modal.querySelector('#group-name').value;
+    const about = modal.querySelector('#group-about').value;
+    const picture = modal.querySelector('#group-picture').value;
+    
+    try {
+      await handleCreateGroup(name, about, picture);
+      modal.remove();
+    } catch (error) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Group';
+    }
+  };
+  
+  cancelBtn.onclick = () => modal.remove();
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+}
+
+async function handleCreateGroup(name, about, picture) {
+  try {
+    const group = await window.groupContactManager.createGroup(name, about, [], picture);
+    console.log('Group created:', group);
+
+    // Close any open modals
+    document.querySelectorAll('.create-group-modal').forEach(modal => modal.remove());
+
+    // Update only the groups section
+    const groupContent = document.getElementById('groupsContent');
+    if (groupContent) {
+      // Clear existing content
+      groupContent.innerHTML = '';
+
+      // Add create group button
+      const createGroupButton = document.createElement('button');
+      createGroupButton.className = 'create-group-button';
+      createGroupButton.innerHTML = '<span>Create New Group</span>';
+      groupContent.appendChild(createGroupButton);
+
+      // Initialize the create group button
+      initializeCreateGroupButton();
+
+      // Add all groups including the new one
+      if (window.groupContactManager) {
+        const userGroups = Array.from(window.groupContactManager.groups.values())
+          .filter(group => !window.groupContactManager.leftGroups.has(group.id))
+          .sort((a, b) => {
+            const timeA = a.lastMessage?.created_at || a.created_at;
+            const timeB = b.lastMessage?.created_at || b.created_at;
+            return timeB - timeA;
+          });
+
+        if (userGroups && userGroups.length > 0) {
+          userGroups.forEach(group => {
+            const groupElement = createContactElement({
+              pubkey: group.id,
+              id: group.id,
+              displayName: group.name || 'Unnamed Group',
+              avatarUrl: (group.picture || '').trim() || 'icons/default-group.png',
+              about: group.about || '',
+              created_at: group.created_at,
+              isGroup: true,
+              members: group.members || [],
+              creator: group.creator,
+              name: group.name || 'Unnamed Group',
+              picture: (group.picture || '').trim() || 'icons/default-group.png'
+            });
+            groupContent.appendChild(groupElement);
+          });
+        }
+      }
+    }
+
+    showErrorMessage('Group created successfully', 'success');
+    return group;
+  } catch (error) {
+    console.error('Error creating group:', error);
+    showErrorMessage('Failed to create group: ' + error.message);
+    throw error;
+  }
+}
+
+// Update search functionality
+function initializeSearch() {
+  const searchInput = document.getElementById('searchInput');
+  const clearSearch = document.getElementById('clearSearch');
+
+  if (!searchInput || !clearSearch) return;
+
+  function performSearch(query) {
+    query = query.toLowerCase().trim();
+    
+    // Get all contact elements
+    const contactElements = document.querySelectorAll('.contact-item');
+    
+    contactElements.forEach(element => {
+      const name = element.querySelector('.contact-name')?.textContent?.toLowerCase() || '';
+      const about = element.querySelector('.contact-about')?.textContent?.toLowerCase() || '';
+      const isMatch = name.includes(query) || about.includes(query);
+      
+      // Show/hide based on match
+      element.style.display = isMatch || query === '' ? '' : 'none';
+    });
+
+    // Show/hide section headers based on visible contacts
+    document.querySelectorAll('.contact-section').forEach(section => {
+      const visibleContacts = section.querySelectorAll('.contact-item:not([style*="display: none"])').length;
+      const hasCreateButton = section.querySelector('.create-group-button') !== null;
+      section.style.display = visibleContacts > 0 || hasCreateButton ? '' : 'none';
+    });
+  }
+
+  searchInput.addEventListener('input', (e) => {
+    performSearch(e.target.value);
+    clearSearch.style.display = e.target.value ? 'flex' : 'none';
+  });
+
+  clearSearch.addEventListener('click', () => {
+    searchInput.value = '';
+    performSearch('');
+    clearSearch.style.display = 'none';
+  });
+}
+
+// Initialize search when DOM is loaded
+document.addEventListener('DOMContentLoaded', initializeSearch);
+
+function clearChat() {
+  const chatContainer = document.querySelector('.chat-container');
+  const chatHeader = document.querySelector('.chat-header');
+  const messageInput = document.getElementById('messageInput');
+  
+  if (chatContainer) {
+    chatContainer.innerHTML = '<div class="no-chat-selected">Select a contact to start chatting</div>';
+    chatContainer.removeAttribute('data-id');
+  }
+  if (chatHeader) {
+    chatHeader.innerHTML = '';
+  }
+  if (messageInput) {
+    messageInput.value = '';
+  }
+}
+
+async function switchToChat(contact) {
+  try {
+    // Clear existing chat and input
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+      messageInput.value = '';
+    }
+    
+    // ... rest of the existing switchToChat function ...
+    } catch (error) {
+    console.error('Error switching chat:', error);
+    showErrorMessage('Failed to switch chat: ' + error.message);
+  }
+}
+
+async function handleMessageSend(event) {
+  event.preventDefault();
+  const messageInput = document.getElementById('messageInput');
+  const content = messageInput.value.trim();
+  if (!content) return;
+
+  const chatContainer = document.querySelector('.chat-container');
+  const groupId = chatContainer?.dataset?.id;
+  
+  try {
+    let message;
+    if (groupId) {
+      message = await window.groupMessageManager.sendMessage(content, groupId);
+      // Add groupId to message object for preview processing
+      message.groupId = groupId;
+    } else {
+      const currentChatId = chatContainer?.dataset?.pubkey;
+      if (!currentChatId) return;
+      message = await window.messageManager.sendMessage(content, currentChatId);
+    }
+
+    if (message) {
+      // Clear input immediately
+      messageInput.value = '';
+      
+      // Create message element with preview support
+      const messageElement = await createMessageElement(message, true);
+      
+      // Add to message list first
+      const messageList = document.querySelector('.message-list');
+      if (messageList) {
+        messageList.insertBefore(messageElement, messageList.firstChild);
+      }
+
+      // Process previews for all messages (both group and DM)
+      if (messageElement) {
+        const previewContainer = messageElement.querySelector('.message-preview');
+        if (previewContainer) {
+          // Process different types of content
+          if (content.includes('youtube.com') || content.includes('youtu.be')) {
+            await processYouTubePreview(content, previewContainer);
+          } else if (content.includes('npub1') || content.includes('note1')) {
+            await processNostrPreview(content, previewContainer);
+          } else if (content.includes('twitter.com') || content.includes('x.com')) {
+            await processTweetPreview(content, previewContainer);
+          } else if (content.match(/\.(gif|jpe?g|png|webp)$/i)) {
+            await processImagePreview(content, previewContainer);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error sending message:', error);
+    showErrorMessage('Failed to send message: ' + error.message);
+  }
+}
+
+async function createMessageElement(message, isNew = false) {
+  const messageElement = document.createElement('div');
+  messageElement.className = `message ${message.isSent ? 'sent' : 'received'}`;
+  
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble';
+  
+  // Add preview container for potential previews
+  const previewContainer = document.createElement('div');
+  previewContainer.className = 'message-preview';
+  
+  const textContainer = document.createElement('div');
+  textContainer.className = 'message-text';
+  textContainer.textContent = message.content;
+  
+  bubble.appendChild(previewContainer);
+  bubble.appendChild(textContainer);
+  messageElement.appendChild(bubble);
+  
+  return messageElement;
+}
+
+// Update the zap handling listener
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'ZAP_RECEIVED') {
+    const { messageId, amount, zapperPubkey, timestamp } = message.data;
+    handleReceivedZap(messageId, amount, zapperPubkey, timestamp);
+  }
+  return true;
+});
+
+async function handleReceivedZap(messageId, amount, zapperPubkey, timestamp) {
+  const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (messageElement) {
+    const zapAmount = messageElement.querySelector('.zap-amount');
+    const zapButton = messageElement.querySelector('.zap-button');
+    
+    if (zapAmount) {
+      // Update the zap amount
+      const currentAmount = parseInt(zapAmount.textContent) || 0;
+      const newAmount = currentAmount + parseInt(amount);
+      zapAmount.textContent = newAmount;
+      
+      // Add visual feedback if there's a zap button
+      if (zapButton) {
+        zapButton.classList.add('zap-received');
+        setTimeout(() => {
+          zapButton.classList.remove('zap-received');
+        }, 500);
+      }
+
+      // Show a notification
+      const metadata = await getUserMetadata(zapperPubkey);
+      const zapperName = metadata?.name || metadata?.displayName || shortenIdentifier(zapperPubkey);
+      showErrorMessage(`Received ${amount} sats zap from ${zapperName}!`, 'success');
+
+      // Play a sound
+      if (soundManager) {
+        soundManager.play('message');
+      }
+    }
+  }
+}
+

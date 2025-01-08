@@ -63,5 +63,7 @@ export default [
   createConfig('src/messages.js', 'messages.js', 'Messages'),
   createConfig('src/nip89.js', 'nip89.js', 'Nip89'),
   createConfig('src/userMetadata.js', 'userMetadata.js', 'UserMetadata'),
-  createConfig('src/utils.js', 'utils.js', 'Utils')
+  createConfig('src/utils.js', 'utils.js', 'Utils'),
+  createConfig('src/groupContact.js', 'groupContact.js', 'GroupContact'),
+  createConfig('src/groupMessages.js', 'groupMessages.js', 'GroupMessages')
 ];

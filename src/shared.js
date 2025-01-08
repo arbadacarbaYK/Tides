@@ -22,7 +22,7 @@ export const RELAYS = [
   'wss://nos.lol',
   'wss://relay.snort.social',
   'wss://nostr.wine',
-  'wss://nostr.noderunners.network',
+  'wss://Inbox.azzamo.net',
   'wss://nostr.einundzwanzig.space'
 ];
 
@@ -68,6 +68,7 @@ export class RelayPool {
 }
 
 export const relayPool = new RelayPool();
+window.relayPool = relayPool;
 
 /**
  * @file shared.js
