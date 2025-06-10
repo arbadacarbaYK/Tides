@@ -1807,3 +1807,48 @@ emoji-picker {
 .leave-group-buttons .confirm-button:hover:not(:disabled) {
   opacity: 0.8;
 }
+
+/* Group message specific styles */
+.message.group-message {
+  margin: 12px 0;  /* Increased spacing for group messages */
+  display: flex;
+  flex-direction: column;  /* Stack author name and bubble vertically */
+}
+
+.message.group-message .group-message-author {
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.7;
+  margin-bottom: 4px;
+  margin-left: 4px;  /* Align with message bubble for received messages */
+}
+
+/* Only right-align author names for sent messages in group chats */
+.message.group-message.sent .group-message-author {
+  text-align: right;
+  margin-right: 4px;
+  margin-left: 0;  /* Remove left margin for sent messages */
+}
+
+/* Message bubbles are aligned using margin-left/right: auto in the base message styles */
+.message.group-message .message-bubble {
+  margin-top: 2px;  /* Small gap between author name and bubble */
+  align-self: flex-start;  /* Default alignment for received messages */
+}
+
+/* Right-align bubbles for sent messages */
+.message.group-message.sent .message-bubble {
+  align-self: flex-end;
+}
+
+/* Adjust bubble colors for better contrast */
+.message.group-message.sent .message-bubble {
+  background-color: var(--hover-color);
+  color: var(--text-color);
+}
+
+.message.group-message.received .message-bubble {
+  background-color: var(--background-color-light);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}

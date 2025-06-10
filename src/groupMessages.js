@@ -228,55 +228,19 @@ document.addEventListener('DOMContentLoaded', () => {
               authorDiv.className = 'group-message-author';
               authorDiv.textContent = authorName;
               messageElement.appendChild(authorDiv);
-              
-              // Add zap button only for messages from others
-              if (authorMetadata?.lud16 || authorMetadata?.lightning) {
-                const zapContainer = document.createElement('div');
-                zapContainer.className = 'zap-container';
-                zapContainer.innerHTML = `
-                  <button class="zap-button" title="Send Zap">⚡</button>
-                  <span class="zap-amount">${event.zapAmount || ''}</span>
-                `;
-                
-                messageElement.style.position = 'relative';
-                
-                const zapButton = zapContainer.querySelector('.zap-button');
-                if (zapButton) {
-                  zapButton.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    if (typeof window.showZapModal === 'function') {
-                      try {
-                        const zapMessage = {
-                          ...groupMessage,
-                          pubkey: event.pubkey,
-                          id: event.id,
-                          content: event.content,
-                          created_at: event.created_at,
-                          type: 'group'
-                        };
-                        await window.showZapModal(zapMessage, authorMetadata, zapContainer);
-                      } catch (error) {
-                        console.debug('Failed to show zap modal:', error);
-                      }
-                    }
-                  });
-                }
-                
-                messageElement.appendChild(zapContainer);
-              }
             } catch (error) {
               console.debug('Failed to add author info:', error);
               // Continue without author info if it fails
             }
-          } else {
-            // For own messages, only add zap amount display if there are zaps
-            if (event.zapAmount) {
-              const zapContainer = document.createElement('div');
-              zapContainer.className = 'zap-container received-only';
-              zapContainer.innerHTML = `<span class="zap-amount">${event.zapAmount}</span>`;
-              messageElement.style.position = 'relative';
-              messageElement.appendChild(zapContainer);
-            }
+          }
+
+          // For own messages, only add zap amount display if there are zaps
+          if (event.zapAmount) {
+            const zapContainer = document.createElement('div');
+            zapContainer.className = 'zap-container received-only';
+            zapContainer.innerHTML = `<span class="zap-amount">${event.zapAmount}</span>`;
+            messageElement.style.position = 'relative';
+            messageElement.appendChild(zapContainer);
           }
 
           const bubbleElement = document.createElement('div');

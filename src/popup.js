@@ -1517,7 +1517,7 @@ document.getElementById('extensionLoginButton').addEventListener('click', async 
         showErrorMessage('No Nostr extension found. Please install Alby or nos2x.');
         return;
       }
-      await handleSuccessfulLogin(user);
+      
       try {
         await window.nostr.enable();
         const user = await auth.login('NIP-07');
@@ -2276,25 +2276,7 @@ async function renderGroupMessages(messages, groupId) {
       authorDiv.textContent = authorName;
       messageElement.appendChild(authorDiv);
 
-      // Add zap container for messages from other users who have lightning address
-      if (authorMetadata?.lud16 || authorMetadata?.lightning) {
-        const zapContainer = document.createElement('div');
-        zapContainer.className = 'zap-container';
-        zapContainer.innerHTML = `
-          <button class="zap-button" title="Send Zap">⚡</button>
-          <span class="zap-amount">${message.zapAmount || ''}</span>
-        `;
-        
-        messageElement.style.position = 'relative';
-        
-        const zapButton = zapContainer.querySelector('.zap-button');
-        zapButton.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          await showZapModal(message, authorMetadata, zapContainer);
-        });
-        
-        messageElement.appendChild(zapContainer);
-      }
+      // Remove the zap container addition here since it's added in renderMessageContent
     }
     
     const bubbleElement = document.createElement('div');
@@ -2305,7 +2287,8 @@ async function renderGroupMessages(messages, groupId) {
       content: message.content,
       pubkey: message.pubkey,
       groupId: groupId,
-      type: 'group'  // Explicitly mark as group message
+      type: 'group',  // Explicitly mark as group message
+      zapAmount: message.zapAmount  // Pass zap amount to renderMessageContent
     }, bubbleElement);
     
     messageElement.appendChild(bubbleElement);
