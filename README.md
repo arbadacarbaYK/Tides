@@ -4,7 +4,7 @@ Tides is a powerful Nostr messenger that lives right in your browser as an exten
 Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or Edge.
 
 <img src="https://github.com/user-attachments/assets/cb262f4b-6275-43a3-bbb9-eefdd2f3740b" width="350" alt="Bildschirmfoto">
-<img src="https://github.com/user-attachments/assets/3c9a6ea2-7deb-4688-a666-2ad9fe09d328" width="350" alt="Bildschirmfoto">
+<img src="https://github.com/user-attachments/assets/3c9a6e2-7deb-4688-a666-2ad9fe09d328" width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/da4e469a-4cbf-4935-a4fe-deb211a98c3b" width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/f83a865e-7aee-470d-bad1-e5e765004e3d" width="350" alt="Bildschirmfoto">
 
@@ -12,20 +12,51 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 <img src="https://github.com/user-attachments/assets/fa411735-feda-4f4e-af4d-f4376d3abd71" width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/56d344f0-0f4a-45ec-9d6a-e5af635ef456" width="350" alt="Bildschirmfoto">
 
-
 ## Features 🚀
 
 - **Direct Messaging**: Seamless peer-to-peer communication over the Nostr network
 - **Group Chats**: Create and manage group conversations with multiple participants
 - **Zaps Integration**: Send and receive Bitcoin tips via Lightning Network
-- **Media Support**: Share images, GIFs, and embed content from popular platforms
-- **Rich Link Previews**: Automatic previews for Nostr notes, profiles, YouTube, Twitter/X, and media links
-- **Multiple Relay Support**: Connect to various Nostr relays for increased reliability
+- **Enhanced Media Support**: Share images, GIFs, videos (MP4, WebM, MOV, AVI, MKV), and embed content from popular platforms
+- **File Upload**: Upload files to Blossom file server with automatic URL sharing
+- **Rich Link Previews**: Automatic previews for Nostr notes, profiles, YouTube, Twitter/X, Twitch, Amazon, and media links
+- **Multiple Relay Support**: Connect to various Nostr relays with automatic fallback and retry logic
 - **Extension Login**: Compatible with NIP-07 browser extensions like Alby and nos2x
 - **Message Caching**: Temporary storage of recent messages for faster loading
 - **Custom Themes**: Dark mode support with a sleek, modern interface
 - **Search**: Search through contacts, groups, and messages
 - **Group Management**: Create, edit, and leave groups with member management
+- **Performance Optimizations**: Fast message loading with timeout protection and error recovery
+- **Robust Error Handling**: Graceful degradation when relays fail or media doesn't load
+- **Context Menus**: Right-click context menus for contacts and groups
+- **Profile Modals**: View and edit user profiles with metadata
+- **Emoji Picker**: Built-in emoji selection for messages
+- **GIF Integration**: Search and share GIFs from Giphy
+- **QR Code Generation**: Generate QR codes for Lightning invoices and LNURLs
+
+## What's New in v1.1.5 🆕
+
+### Major Improvements
+- **Video Support**: Now supports MP4, WebM, MOV, AVI, and MKV video files
+- **Enhanced Media Detection**: Improved detection for Blossom, void.cat, and other media hosting services
+- **Performance Boost**: Faster chat loading with 8-second timeout protection
+- **Better Error Recovery**: Comprehensive error handling prevents crashes and provides fallbacks
+- **Relay Resilience**: Automatic fallback to backup relays when primary relays fail
+- **Media Fallbacks**: Failed media now shows as clickable links instead of disappearing
+
+### Bug Fixes
+- **Message Sending**: Fixed issue where send button wasn't working properly
+- **Empty Message Bubbles**: Resolved problem with media messages showing as empty bubbles
+- **Network Connectivity**: Improved relay connection handling with retry logic
+- **Resource Loading**: Better handling of failed images and CSS resources
+- **Unhandled Errors**: Prevented unhandled promise rejections from crashing the extension
+
+### Technical Enhancements
+- **Timeout Protection**: Added timeouts to prevent hanging operations
+- **Promise.allSettled**: Better error handling for parallel operations
+- **Enhanced Regex**: Improved URL and media detection patterns
+- **Error Boundaries**: Global error handlers prevent extension crashes
+- **Connection Pooling**: More efficient relay connection management
 
 ## Installation for Users 🔧
 
@@ -74,6 +105,10 @@ src/
 ├── style.css         # Styling
 ├── shared.js         # Shared utilities and constants
 ├── userMetadata.js   # User profile handling
+├── contact.js        # Contact management
+├── messages.js       # Message handling and encryption
+├── groupContact.js   # Group contact management
+├── groupMessages.js  # Group message handling
 ├── services/         # External API integrations (Giphy, etc.)
 ├── sounds/          # Audio files for notifications
 ├── icons/           # Extension and UI icons
@@ -90,6 +125,7 @@ Built using:
 - Web Notifications API
 - Giphy API for GIF support
 - WebLN for Lightning Network integration
+- Blossom file server for file uploads
 
 Supports NIPs:
 - NIP-01: Basic protocol
@@ -116,18 +152,19 @@ Supports NIPs:
    - Validate all key formats
 
 2. **Relay Management**
-   - Implement connection pooling
-   - Handle relay failures gracefully
+   - Implement connection pooling with fallback relays
+   - Handle relay failures gracefully with retry logic
    - Cache messages for offline use
-   - Monitor relay health
+   - Monitor relay health and connection timeouts
 
 3. **Message Handling**
    - Encrypt all DMs using NIP-04/44
    - Validate message signatures
-   - Handle different content types
-   - Implement proper error recovery
+   - Handle different content types including video files
+   - Implement proper error recovery with fallbacks
    - Process group messages (kind 42)
    - Handle group metadata updates
+   - Support media uploads to Blossom
 
 4. **Group Management**
    - Create and edit groups
@@ -144,6 +181,14 @@ Supports NIPs:
    - Optimize WebSocket connections
    - Minimize storage usage
    - Efficient message filtering
+   - Timeout protection for all async operations
+
+6. **Error Handling**
+   - Global error boundaries prevent crashes
+   - Graceful degradation for failed operations
+   - Fallback content for failed media
+   - Comprehensive logging for debugging
+   - User-friendly error messages
 
 ## Privacy & Security 🔒
 
@@ -157,6 +202,7 @@ Supports NIPs:
 - No tracking or analytics
 - Minimal permission requirements
 - Secure relay connections only
+- File uploads use secure authentication
 
 ## Contributing 🤝
 
