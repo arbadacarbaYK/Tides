@@ -5,7 +5,6 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 
 <img src="https://github.com/user-attachments/assets/cb262f4b-6275-43a3-bbb9-eefdd2f3740b" width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/3c9a6e2-7deb-4688-a666-2ad9fe09d328" width="350" alt="Bildschirmfoto">
-<img src="https://github.com/user-attachments/assets/da4e469a-4cbf-4935-a4fe-deb211a98c3b" width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/f83a865e-7aee-470d-bad1-e5e765004e3d" width="350" alt="Bildschirmfoto">
 
 <img src="https://github.com/user-attachments/assets/7826fcc3-9415-4b01-975c-b1c3a0132665" width="350" alt="Bildschirmfoto">
