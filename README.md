@@ -34,29 +34,6 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 - **GIF Integration**: Search and share GIFs from Giphy
 - **QR Code Generation**: Generate QR codes for Lightning invoices and LNURLs
 
-## What's New in v1.1.5 🆕
-
-### Major Improvements
-- **Video Support**: Now supports MP4, WebM, MOV, AVI, and MKV video files
-- **Enhanced Media Detection**: Improved detection for Blossom, void.cat, and other media hosting services
-- **Performance Boost**: Faster chat loading with 8-second timeout protection
-- **Better Error Recovery**: Comprehensive error handling prevents crashes and provides fallbacks
-- **Relay Resilience**: Automatic fallback to backup relays when primary relays fail
-- **Media Fallbacks**: Failed media now shows as clickable links instead of disappearing
-
-### Bug Fixes
-- **Message Sending**: Fixed issue where send button wasn't working properly
-- **Empty Message Bubbles**: Resolved problem with media messages showing as empty bubbles
-- **Network Connectivity**: Improved relay connection handling with retry logic
-- **Resource Loading**: Better handling of failed images and CSS resources
-- **Unhandled Errors**: Prevented unhandled promise rejections from crashing the extension
-
-### Technical Enhancements
-- **Timeout Protection**: Added timeouts to prevent hanging operations
-- **Promise.allSettled**: Better error handling for parallel operations
-- **Enhanced Regex**: Improved URL and media detection patterns
-- **Error Boundaries**: Global error handlers prevent extension crashes
-- **Connection Pooling**: More efficient relay connection management
 
 ## Installation for Users 🔧
 
