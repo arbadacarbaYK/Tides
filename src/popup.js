@@ -8,7 +8,7 @@ import { toLowerCaseHex } from './utils.js';
 import { soundManager } from './utils.js';
 import { shortenIdentifier } from './shared.js';
 import 'emoji-picker-element';
-import { searchGifs, getTrendingGifs } from './services/giphy.js';
+// Giphy service is loaded via script tag as giphyService global
 import { RELAYS } from './shared.js';
 import qrcode from 'qrcode';
 import { nostrCore, pool, relayPool } from './shared.js';
@@ -37,14 +37,16 @@ function initializeGifButton() {
 
   // Remove existing listeners
   const newGifButton = gifButton.cloneNode(true);
+  if (gifButton && gifButton.parentNode) {
   gifButton.parentNode.replaceChild(newGifButton, gifButton);
+  }
 
   newGifButton.addEventListener('click', async () => {
     const existingPicker = document.querySelector('.gif-picker');
     if (existingPicker) {
       existingPicker.remove();
-      return;
-    }
+        return;
+      }
 
     const picker = document.createElement('div');
     picker.className = 'gif-picker';
@@ -64,7 +66,7 @@ function initializeGifButton() {
     document.querySelector('.message-input-container').appendChild(picker);
 
     try {
-      const trending = await getTrendingGifs();
+      const trending = await giphyService.getTrendingGifs();
       renderGifs(trending, gifGrid);
     } catch (error) {
       showErrorMessage('Failed to load GIFs');
@@ -77,13 +79,13 @@ function initializeGifButton() {
         const query = e.target.value.trim();
         try {
           if (query) {
-            const results = await searchGifs(query);
+            const results = await giphyService.searchGifs(query);
             renderGifs(results, gifGrid);
-          } else {
-            const trending = await getTrendingGifs();
+        } else {
+            const trending = await giphyService.getTrendingGifs();
             renderGifs(trending, gifGrid);
           }
-        } catch (error) {
+      } catch (error) {
           showErrorMessage('GIF search failed');
         }
       }, 300);
@@ -227,7 +229,7 @@ async function handleSuccessfulLogin(user) {
     if (!hasPlayedLoginSound) {
       soundManager.play('login');
       hasPlayedLoginSound = true;
-    }
+      }
   } catch (error) {
     showErrorMessage('Login failed: ' + error.message);
   } finally {
@@ -282,9 +284,9 @@ async function loadUserData(user) {
   const loadingIndicator = document.getElementById('loadingIndicator');
   try {
     loadingIndicator.style.display = 'block';
-    
+
     // Initialize contacts
-    const contacts = await fetchContacts(user.pubkey);
+    const contacts = await contactManager.init(user.pubkey);
     setContacts(contacts);
 
     // Initialize groups
@@ -372,7 +374,7 @@ function updateUIWithMetadata(metadata) {
     avatar.onerror = () => {
       avatar.src = '/icons/default-avatar.png';
     };
-    avatar.src = metadata.picture || '/icons/default-avatar.png';
+    avatar.src = metadata?.picture || '/icons/default-avatar.png';
   }
 
   // Add click handler for profile popup
@@ -388,7 +390,7 @@ function updateUIWithMetadata(metadata) {
       modal.innerHTML = `
         <div class="modal-content profile-modal-content">
           <div class="profile-header">
-            <img src="${metadata.picture || '/icons/default-avatar.png'}" alt="Profile" class="profile-avatar">
+            <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Profile" class="profile-avatar">
             <h3>${metadata.name || metadata.displayName || 'Anonymous'}</h3>
           </div>
           <div class="profile-details">
@@ -472,7 +474,7 @@ async function renderContactList(contacts) {
   const contactList = document.getElementById('contactList');
   if (!contactList) return;
   
-  contactList.innerHTML = '';
+    contactList.innerHTML = '';
   
   // Create streams section
   const streamSection = document.createElement('div');
@@ -552,7 +554,7 @@ async function renderContactList(contacts) {
         });
         groupContent.appendChild(groupElement);
       });
-    } else {
+          } else {
       const noGroupsMessage = document.createElement('div');
       noGroupsMessage.className = 'no-groups-message';
       noGroupsMessage.textContent = 'No groups yet';
@@ -565,27 +567,14 @@ async function renderContactList(contacts) {
   contactList.appendChild(groupSection);
 
   if (contacts && contacts.length > 0) {
-    // Get all messages for each contact first, including temporary contacts
-    const contactsWithMessages = await Promise.all(contacts.map(async (contact) => {
-      try {
-        const messages = await messageManager.fetchMessages(contact.pubkey);
-        // Filter out group messages to only consider DMs
-        const dmMessages = messages.filter(msg => !msg.groupId && msg.type !== 'group');
-        const lastMessage = dmMessages && dmMessages.length > 0 
-          ? dmMessages.reduce((latest, msg) => msg.created_at > latest.created_at ? msg : latest)
-          : null;
+    // Use the already-calculated lastMessageTime from contactManager instead of re-fetching
+    const contactsWithMessages = contacts.map(contact => {
+      const lastMessageTime = contactManager.lastMessageTimes.get(contact.pubkey);
         return {
           ...contact,
-          lastMessageTime: lastMessage ? lastMessage.created_at : null
-        };
-      } catch (error) {
-        console.error('Error fetching messages for contact:', contact.pubkey, error);
-        return {
-          ...contact,
-          lastMessageTime: null
-        };
-      }
-    }));
+        lastMessageTime: lastMessageTime || null
+      };
+    });
 
     // Split contacts into recent and other based on message existence
     const recentContacts = contactsWithMessages.filter(c => c.lastMessageTime !== null);
@@ -1155,7 +1144,7 @@ async function sendMessage() {
       // Process link previews for the new message
       await loadLinkPreviews();
     }
-  } catch (error) {
+      } catch (error) {
     console.error('Error sending message:', error);
     showErrorMessage('Failed to send message: ' + error.message);
     // Restore the message input if sending failed
@@ -1449,7 +1438,9 @@ function initializeEmojiPicker(emojiButton, messageInput) {
   
   // Remove any existing listeners
   const newEmojiButton = emojiButton.cloneNode(true);
+  if (emojiButton && emojiButton.parentNode) {
   emojiButton.parentNode.replaceChild(newEmojiButton, emojiButton);
+  }
   
   newEmojiButton.addEventListener('click', (e) => {
     e.preventDefault();
@@ -2065,7 +2056,7 @@ async function showProfileModal(pubkey, metadata) {
   modal.innerHTML = `
     <div class="modal-content profile-modal-content">
       <div class="profile-header">
-        <img src="${metadata.picture || '/icons/default-avatar.png'}" alt="Profile" class="profile-avatar">
+        <img src="${metadata?.picture || '/icons/default-avatar.png'}" alt="Profile" class="profile-avatar">
         <h3>${metadata.name || metadata.displayName || 'Anonymous'}</h3>
       </div>
       <div class="profile-details">
@@ -2338,9 +2329,12 @@ async function initializeApp() {
     await auth.init();
     const currentUser = await auth.getCurrentUser();
     
+    console.log('POPUP INIT: currentUser:', currentUser?.pubkey?.slice(0,8));
     if (currentUser) {
+      console.log('POPUP INIT: About to call contactManager.init()');
       // Initialize contacts
       const contacts = await contactManager.init(currentUser.pubkey);
+      console.log('POPUP INIT: contactManager.init() completed, got', contacts?.length, 'contacts');
       
       // Initialize groups
       if (window.groupContactManager) {
@@ -2743,7 +2737,9 @@ function initializeCreateGroupButton() {
 
   // Remove any existing click listeners to prevent duplicates
   const newButton = createGroupButton.cloneNode(true);
+  if (createGroupButton && createGroupButton.parentNode) {
   createGroupButton.parentNode.replaceChild(newButton, createGroupButton);
+  }
 
   newButton.addEventListener('click', () => {
     showCreateGroupModal();

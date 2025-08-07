@@ -1,4 +1,4 @@
-import { pool, RELAYS, nostrCore, relayPool } from './shared.js';
+import { pool, RELAYS, nostrCore, relayPool, pubkeyToNpub } from './shared.js';
 import { auth } from './auth.js';
 import { validateEvent } from './utils.js';
 import NostrTools from 'nostr-tools';
@@ -188,16 +188,17 @@ export class MessageManager {
         return messages.filter(Boolean);
       }
 
+      // Use targeted filters for this specific conversation
       const filters = [
         {
           kinds: [4],
-          '#p': [targetPubkey],
-          authors: [userPubkey]
+          authors: [userPubkey],
+          '#p': [targetPubkey]  // DMs from current user TO target
         },
         {
           kinds: [4],
-          '#p': [userPubkey],
-          authors: [targetPubkey]
+          authors: [targetPubkey],
+          '#p': [userPubkey]   // DMs from target TO current user
         }
       ];
 
@@ -208,17 +209,46 @@ export class MessageManager {
       const messages = await Promise.all(
         events
           .filter(event => {
-            // Additional validation for DMs
+            // Basic validation - filters are already targeted
             if (event.kind !== 4) return false;
-            // Must have exactly one p tag for recipient
+            
+            // Validate this is a proper DM with a recipient
             const pTags = event.tags.filter(t => t[0] === 'p');
-            if (pTags.length !== 1) return false;
+            if (pTags.length === 0) return false;
+            
+            // CRITICAL: Prevent self-messages from appearing in conversations with others
+            // For non-self conversations, ensure this is actually a message between the two users
+            const recipientPubkey = pTags[0][1].toLowerCase();
+            const authorPubkey = event.pubkey.toLowerCase();
+            
+            // This message must involve exactly the current user and target user
+            const isValidConversation = (
+              (authorPubkey === userPubkey && recipientPubkey === targetPubkey) ||
+              (authorPubkey === targetPubkey && recipientPubkey === userPubkey)
+            );
+            
+            if (!isValidConversation) {
+              console.log(`Filtering out message: author=${authorPubkey.slice(0,8)}, recipient=${recipientPubkey.slice(0,8)}, expected conversation between ${userPubkey.slice(0,8)} and ${targetPubkey.slice(0,8)}`);
+              return false;
+            }
+            
             return true;
           })
           .sort((a, b) => a.created_at - b.created_at)
           .map(async (event) => {
             const decrypted = await this.decryptMessage(event);
             if (!decrypted) return null;
+            
+            // Filter out JSON/structured messages (nostrmarket spam) AFTER decryption
+            try {
+              const parsed = JSON.parse(decrypted);
+              if (parsed && typeof parsed === 'object' && (parsed.type !== undefined || parsed.items || parsed.address !== undefined)) {
+                console.log(`Filtering out structured message from ${event.pubkey.slice(0,8)}`);
+                return null;
+              }
+            } catch (e) {
+              // Not JSON, continue with normal DM processing
+            }
             
             // Add DM-specific attributes
             return {
@@ -302,6 +332,8 @@ export class MessageManager {
     }
   }
 
+  
+
   async storeMessage(message) {
     if (!message.type || message.type !== 'dm') {
       throw new Error('Invalid message type. Only DMs can be stored here.');
@@ -325,6 +357,47 @@ export class MessageManager {
         this.messageCache.get(k).sort((a, b) => a.created_at - b.created_at);
       }
     });
+  }
+
+  async getUserRelays(pubkey) {
+    try {
+      // Fetch user's relay list (NIP-65 kind 10002 or kind 3 with relay info)
+      const filters = [
+        { kinds: [10002], authors: [pubkey], limit: 1 }, // NIP-65 relay list
+        { kinds: [3], authors: [pubkey], limit: 1 }      // Contact list with relay info
+      ];
+
+      const events = await this.pool.list(relayPool.getConnectedRelays(), filters);
+      const relays = [];
+
+      for (const event of events) {
+        if (event.kind === 10002) {
+          // NIP-65 relay list
+          event.tags.forEach(tag => {
+            if (tag[0] === 'r' && tag[1]) {
+              relays.push(tag[1]);
+            }
+          });
+        } else if (event.kind === 3) {
+          // Contact list - check for relay URLs in content
+          try {
+            const content = JSON.parse(event.content || '{}');
+            Object.keys(content).forEach(url => {
+              if (url.startsWith('wss://') || url.startsWith('ws://')) {
+                relays.push(url);
+              }
+            });
+          } catch (e) {
+            // Ignore JSON parse errors
+          }
+        }
+      }
+
+      return [...new Set(relays)]; // Remove duplicates
+    } catch (error) {
+      console.warn(`Failed to fetch relays for user ${pubkey.slice(0,8)}:`, error);
+      return [];
+    }
   }
 }
 

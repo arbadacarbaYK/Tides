@@ -33,6 +33,7 @@ function createConfig(input, output, name) {
           { src: 'src/style.css', dest: 'dist' },
           { src: 'src/manifest.json', dest: 'dist' },
           { src: 'src/sounds/*', dest: 'dist/sounds' },
+          { src: 'src/services/*', dest: 'dist/services' },
           { src: 'src/icons/Logo.png', dest: 'dist/icons' },
           { src: 'src/icons/default-avatar.png', dest: 'dist/icons' },
           { 

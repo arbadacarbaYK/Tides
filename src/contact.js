@@ -14,49 +14,86 @@ class ContactManager {
   }
 
   async init(pubkey) {
+    console.log('CONTACT INIT: Starting init method');
     const contacts = await fetchContacts(pubkey);
+    console.log('CONTACT INIT: Got contacts array:', contacts?.length, 'contacts');
+    console.log('CONTACT INIT: First few contacts:', contacts?.slice(0, 3));
     this.contacts = new Map(contacts.map(c => [c.pubkey, c]));
+    console.log('CONTACT INIT: Successfully created contacts Map with', this.contacts.size, 'entries');
     
     try {
+      console.log('CONTACT INIT: Starting try block');
       // Wait for authentication
       const currentUser = await auth.getCurrentUser();
+      console.log('CONTACT INIT: Got current user:', currentUser?.pubkey?.slice(0,8));
       if (!currentUser) {
         console.error('User not authenticated');
         return Array.from(this.contacts.values());
       }
+      console.log('CONTACT INIT: User authenticated, proceeding to message fetching');
+
+      // Skip user relay fetching for now to avoid blocking the init process
 
       // Clear existing message times
       this.lastMessageTimes.clear();
 
-      // Initialize message times for all contacts
-      for (const contact of this.contacts.values()) {
-        try {
-          console.log(`Fetching messages for contact ${contact.pubkey}`);
-          const messages = await messageManager.fetchMessages(contact.pubkey);
-          console.log(`Got ${messages?.length || -1} messages for ${contact.pubkey}`);
+      // Find DM conversations efficiently by querying for all DMs first
+      console.log('Finding DM conversations efficiently...');
+      try {
+        // Query for all DMs involving the current user
+        const dmFilters = [
+          {
+            kinds: [4],
+            authors: [currentUser.pubkey],
+            limit: 500
+          },
+          {
+            kinds: [4],
+            '#p': [currentUser.pubkey],
+            limit: 500
+          }
+        ];
+
+        console.log('Fetching all DM events...');
+        const dmEvents = await pool.list(RELAYS, dmFilters);
+        console.log(`Found ${dmEvents.length} total DM events`);
+
+        // Group DMs by conversation partner
+        const conversationMap = new Map();
+        
+        for (const event of dmEvents) {
+          let partnerPubkey;
           
-          if (messages && messages.length > -1) {
-            // Find the most recent message
-            const lastMessage = messages.reduce((latest, msg) => {
-              if (!latest || msg.created_at > latest.created_at) {
-                console.log(`Found newer message for ${contact.pubkey}:`, msg.created_at);
-                return msg;
-              }
-              return latest;
-            }, null);
-            
-            if (lastMessage) {
-              console.log(`Setting last message time for ${contact.pubkey}:`, {
-                displayName: contact.displayName,
-                timestamp: lastMessage.created_at,
-                messageId: lastMessage.id
-              });
-              this.lastMessageTimes.set(contact.pubkey, lastMessage.created_at);
+          if (event.pubkey === currentUser.pubkey) {
+            // Sent by current user - find recipient in p tags
+            const pTag = event.tags.find(tag => tag[0] === 'p');
+            if (pTag && pTag[1]) {
+              partnerPubkey = pTag[1];
+            }
+          } else {
+            // Received by current user - sender is the partner
+            partnerPubkey = event.pubkey;
+          }
+          
+          if (partnerPubkey && partnerPubkey !== currentUser.pubkey) {
+            if (!conversationMap.has(partnerPubkey) || event.created_at > conversationMap.get(partnerPubkey)) {
+              conversationMap.set(partnerPubkey, event.created_at);
             }
           }
-        } catch (error) {
-          console.error(`Error fetching messages for contact ${contact.pubkey}:`, error);
         }
+
+        console.log(`Found ${conversationMap.size} DM conversations`);
+        
+        // Update lastMessageTimes for contacts who have conversations
+        for (const [partnerPubkey, lastMessageTime] of conversationMap.entries()) {
+          if (this.contacts.has(partnerPubkey)) {
+            this.lastMessageTimes.set(partnerPubkey, lastMessageTime);
+            console.log(`Set message time for contact ${partnerPubkey.slice(0,8)}: ${lastMessageTime}`);
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error finding DM conversations:', error);
       }
 
       // Log the final state
@@ -159,14 +196,34 @@ export async function fetchContacts(pubkey) {
       return [];
     }
 
-    const contactPubkeys = contactEvent.tags
-      .filter(tag => tag[0] === 'p')
-      .map(tag => tag[1]);
+    // Collect contact pubkeys from both contact lists and message events
+    const contactPubkeys = new Set();
+    
+    // Add contacts from kind 3 contact list
+    const pTags = contactEvent.tags.filter(tag => tag[0] === 'p');
+    pTags.forEach(tag => {
+      if (tag[1]) {
+        contactPubkeys.add(tag[1]);
+      }
+    });
+    
+    // Also fetch kind 4 message events to discover contacts from messages
+    const messageFilter = {
+      kinds: [4],
+      '#p': [pubkey]
+    };
+    
+    const messageEvents = await pool.list(relays, [messageFilter]);
+    messageEvents.forEach(event => {
+      if (event.pubkey && event.pubkey !== pubkey) {
+        contactPubkeys.add(event.pubkey);
+      }
+    });
 
-    console.log('Found contact pubkeys:', contactPubkeys.length);
+    console.log(`Found contact pubkeys: ${contactPubkeys.size}`);
 
     const contacts = await Promise.all(
-      contactPubkeys.map(async (pubkey) => {
+      Array.from(contactPubkeys).map(async (pubkey) => {
         try {
           const metadata = await getUserMetadata(pubkey);
           return {

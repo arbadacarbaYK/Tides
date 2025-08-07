@@ -67,11 +67,11 @@ function validateMetadata(metadata) {
 }
 
 export function getDisplayName(pubkey, metadata) {
-  return metadata.name || metadata.displayName || pubkeyToNpub(pubkey);
+  return metadata?.name || metadata?.displayName || pubkeyToNpub(pubkey);
 }
 
 export function getAvatarUrl(metadata) {
-  return metadata.picture || 'icons/default-avatar.png';
+  return metadata?.picture || 'icons/default-avatar.png';
 }
 
 export async function getStoredMetadata(pubkey) {
