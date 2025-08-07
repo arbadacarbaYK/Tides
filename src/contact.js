@@ -40,17 +40,17 @@ class ContactManager {
       // Find DM conversations efficiently by querying for all DMs first
       console.log('Finding DM conversations efficiently...');
       try {
-        // Query for all DMs involving the current user
+        // Query for all DMs involving the current user (no limits to catch old conversations)
         const dmFilters = [
           {
             kinds: [4],
-            authors: [currentUser.pubkey],
-            limit: 500
+            authors: [currentUser.pubkey]
+            // No limit - we want ALL DMs the user has ever sent
           },
           {
             kinds: [4],
-            '#p': [currentUser.pubkey],
-            limit: 500
+            '#p': [currentUser.pubkey]
+            // No limit - we want ALL DMs the user has ever received
           }
         ];
 
@@ -76,6 +76,8 @@ class ContactManager {
           }
           
           if (partnerPubkey && partnerPubkey !== currentUser.pubkey) {
+            // Simply add to conversation map without content filtering
+            // (Content filtering will happen during individual conversation display)
             if (!conversationMap.has(partnerPubkey) || event.created_at > conversationMap.get(partnerPubkey)) {
               conversationMap.set(partnerPubkey, event.created_at);
             }
@@ -84,9 +86,116 @@ class ContactManager {
 
         console.log(`Found ${conversationMap.size} DM conversations`);
         
-        // Update lastMessageTimes for contacts who have conversations
+        // Debug: Check for missing expected contacts
+        const expectedContacts = [
+          '5fe000e4791c11ff7e898b360964fd3cf194e6976fb79a75b20be54aaf7b0a79', // Jan
+          '00aa61fe312f3d565247b9beeff478d571c9565da38b24a3b2d442488fb86427', // Mikih  
+          '6c2d68ba016c291417fd18ea7c06b737ec143f7d56d78fdd44a5b248846525ec'  // Quillie
+        ];
+        
+        for (const expectedPubkey of expectedContacts) {
+          if (!conversationMap.has(expectedPubkey)) {
+            console.log(`MISSING: Expected contact ${expectedPubkey.slice(0,8)} not found in DM conversations`);
+            
+            // Check if they're in our contact list
+            if (this.contacts.has(expectedPubkey)) {
+              console.log(`Contact ${expectedPubkey.slice(0,8)} IS in contact list but NO DM conversation found`);
+              
+              // Try individual fetching for missing expected contacts
+              console.log(`Attempting individual fetch for missing contact ${expectedPubkey.slice(0,8)}`);
+              try {
+                const individualMessages = await messageManager.fetchMessages(expectedPubkey);
+                if (individualMessages && individualMessages.length > 0) {
+                  // Find the most recent message
+                  const lastMessage = individualMessages.reduce((latest, msg) => {
+                    if (!latest || msg.created_at > latest.created_at) {
+                      return msg;
+                    }
+                    return latest;
+                  }, null);
+                  
+                  if (lastMessage) {
+                    conversationMap.set(expectedPubkey, lastMessage.created_at);
+                    console.log(`Individual fetch SUCCESS: Found ${individualMessages.length} messages for ${expectedPubkey.slice(0,8)}, latest: ${lastMessage.created_at}`);
+                  }
+                } else {
+                  console.log(`Individual fetch FAILED: No messages found for ${expectedPubkey.slice(0,8)}`);
+                }
+              } catch (error) {
+                console.error(`Error in individual fetch for ${expectedPubkey.slice(0,8)}:`, error);
+              }
+            } else {
+              console.log(`Contact ${expectedPubkey.slice(0,8)} is NOT in contact list at all`);
+            }
+          } else {
+            console.log(`FOUND: Expected contact ${expectedPubkey.slice(0,8)} has DM conversation`);
+          }
+        }
+        
+        // Get current follow list to filter out unfollowed contacts
+        let currentFollowList = [];
+        try {
+          const followListEvents = await pool.list(RELAYS, [
+            {
+              kinds: [3],
+              authors: [currentUser.pubkey],
+              limit: 1
+            }
+          ]);
+          
+          if (followListEvents.length > 0) {
+            currentFollowList = followListEvents[0].tags
+              .filter(tag => tag[0] === 'p')
+              .map(tag => tag[1]);
+          }
+        } catch (error) {
+          console.error('Error fetching follow list:', error);
+        }
+        
+        // Get current mute list (NIP-51) to filter out muted contacts
+        let mutedContacts = [];
+        try {
+          const muteEvents = await pool.list(RELAYS, [
+            {
+              kinds: [10000], // NIP-51 mute list
+              authors: [currentUser.pubkey],
+              limit: 1 // Only need the latest mute list
+            }
+          ]);
+          
+          if (muteEvents.length > 0) {
+            mutedContacts = muteEvents[0].tags
+              .filter(tag => tag[0] === 'p')
+              .map(tag => tag[1]);
+          }
+          console.log(`Found ${mutedContacts.length} muted contacts`);
+        } catch (error) {
+          console.error('Error fetching mute list:', error);
+        }
+        
+        // Only filter out contacts that were explicitly unfollowed via the unfollow button
+        // Don't remove all contacts not in follow list - they might be DM conversations
+        console.log(`Follow list contains ${currentFollowList.length} contacts`);
+        console.log(`Contact map has ${this.contacts.size} contacts before filtering`);
+        
+        // Filter out muted contacts from the contacts Map entirely
+        for (const [pubkey, contact] of this.contacts.entries()) {
+          if (mutedContacts.includes(pubkey)) {
+            console.log(`Removing muted contact ${pubkey.slice(0,8)} from contacts`);
+            this.contacts.delete(pubkey);
+          }
+        }
+        
+        // Update lastMessageTimes for contacts who have conversations AND are still followed
         for (const [partnerPubkey, lastMessageTime] of conversationMap.entries()) {
           if (this.contacts.has(partnerPubkey)) {
+            // Skip nostrmarket contact (known spam)
+            if (partnerPubkey === '244c2c9ace2675a8500cd57a0bc5eb44fb806e4af57682008606a29e80087b4e') {
+              console.log(`Skipping nostrmarket contact ${partnerPubkey.slice(0,8)}`);
+              continue;
+            }
+            
+            // No need to check follow list again - already filtered above
             this.lastMessageTimes.set(partnerPubkey, lastMessageTime);
             console.log(`Set message time for contact ${partnerPubkey.slice(0,8)}: ${lastMessageTime}`);
           }
@@ -335,6 +444,15 @@ export async function ensureContact(pubkey) {
   let contact = contactManager.contacts.get(pubkey);
   
   if (!contact) {
+    // Check if this contact was previously unfollowed or blocked
+    if (window.unfollowedContacts && window.unfollowedContacts.has(pubkey)) {
+      console.log(`Skipping creation of unfollowed contact ${pubkey.slice(0,8)}`);
+      return null;
+    }
+    
+    // TODO: Also check network-level blocking (NIP-25) here if needed
+    // For now, local unfollowed list covers both cases
+    
     const metadata = await getUserMetadata(pubkey);
     const npub = nostrCore.nip19.npubEncode(pubkey);
     

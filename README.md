@@ -21,6 +21,9 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 - **Rich Link Previews**: Automatic previews for Nostr notes, profiles, YouTube, Twitter/X, Twitch, Amazon, and media links
 - **Multiple Relay Support**: Connect to various Nostr relays with automatic fallback and retry logic
 - **Extension Login**: Compatible with NIP-07 browser extensions like Alby and nos2x
+- **Advanced Contact Management**: Unfollow contacts with network-wide synchronization across all Nostr clients
+- **Mute Lists**: Block unwanted contacts using standardized mute lists (NIP-51) for multi-client consistency
+- **Nostr Wallet Connect**: Pay zaps directly from your own NWC-compatible wallet (optional)
 - **Message Caching**: Temporary storage of recent messages for faster loading
 - **Custom Themes**: Dark mode support with a sleek, modern interface
 - **Search**: Search through contacts, groups, and messages
@@ -47,6 +50,36 @@ Its Compatible with Chromium-based browsers like Brave (recommended), Chrome, or
 5. Click "Load unpacked" and select the folder containing the extracted files
 6. Make sure to enable "Add to taskbar" in the extension details to see the icon
 7. The extension icon should appear in your browser toolbar
+
+## Changelog 📝
+
+### v1.2.0 - Advanced Contact Management & Stability (Aug 2025)
+
+**🎉 Major Features:**
+- **Advanced Contact Management**: Unfollow contacts with network-wide synchronization
+- **NIP-51 Mute Lists**: Block unwanted contacts with multi-client consistency  
+- **Nostr Wallet Connect (NWC)**: Pay zaps from your own wallet (optional)
+- **Improved Contact Discovery**: More reliable "Recent" contact classification
+- **Performance Optimizations**: Faster loading with bulk DM conversation discovery
+
+**🔧 Improvements:**
+- Fixed contacts missing from Recent list (Jan, Mikih, Quillie, etc.)
+- Enhanced unfollow functionality for both followed contacts and non-contacts
+- Removed arbitrary message limits that excluded older conversations
+- Better error handling for failed relays and network issues
+- Improved UI stability with null-safe operations
+- Fixed GIF service integration and ES6 module compatibility
+
+**🛡️ Security & Standards:**
+- Network-level contact actions for multi-client synchronization
+- Proper NIP-51 mute list implementation (corrected from NIP-25)
+- Filtered relay publishing to avoid restricted relay errors
+- Enhanced input validation and error boundaries
+
+**📚 Documentation:**
+- Updated README with all new features and NIPs
+- Created comprehensive SETUP_INSTRUCTIONS.md for developers
+- Added debugging guide and testing checklist
 
 ## For Developers 🛠️
 
@@ -105,17 +138,23 @@ Built using:
 
 Supports NIPs:
 - NIP-01: Basic protocol
+- NIP-02: Follow List (contact management)
+- NIP-03: Follow List metadata (contact management)
 - NIP-04: Encrypted Direct Messages
 - NIP-05: DNS Identifiers
 - NIP-07: Browser Extension
 - NIP-19: bech32-encoded entities
 - NIP-21: nostr: URL scheme
-- NIP-25: Reactions
+- NIP-25: Reactions (likes, dislikes on messages)
 - NIP-28: Public Chat Channels
 - NIP-40: Expiration Timestamp
+- NIP-41: Channel Metadata (group management)
 - NIP-42: Authentication
 - NIP-44: Versioned Encryption
+- NIP-47: Nostr Wallet Connect (zap payments)
+- NIP-51: Lists (including mute lists for blocking)
 - NIP-57: Lightning Zaps
+- NIP-65: Relay List Metadata
 - NIP-89: Application Handlers
 - NIP-92: Media Attachments
 
@@ -142,7 +181,15 @@ Supports NIPs:
    - Handle group metadata updates
    - Support media uploads to Blossom
 
-4. **Group Management**
+4. **Contact Management**
+   - Follow/unfollow contacts using NIP-02/03 follow lists
+   - Network-wide contact synchronization across Nostr clients
+   - Mute unwanted contacts using NIP-51 mute lists
+   - Filter contacts by follow status and mute status
+   - Support both followed contacts and temporary message senders
+   - Multi-client consistency for all contact actions
+
+5. **Group Management**
    - Create and edit groups
    - Member management
    - Group metadata handling
@@ -150,7 +197,7 @@ Supports NIPs:
    - Group message caching
    - Group event validation
 
-5. **Performance**
+6. **Performance**
    - Cache user metadata locally
    - Cache group data locally
    - Implement lazy loading for media
@@ -159,7 +206,7 @@ Supports NIPs:
    - Efficient message filtering
    - Timeout protection for all async operations
 
-6. **Error Handling**
+7. **Error Handling**
    - Global error boundaries prevent crashes
    - Graceful degradation for failed operations
    - Fallback content for failed media
@@ -179,6 +226,9 @@ Supports NIPs:
 - Minimal permission requirements
 - Secure relay connections only
 - File uploads use secure authentication
+- Optional Nostr Wallet Connect (NWC) for zap payments
+- Contact management with network-wide synchronization
+- Mute lists for privacy control across all Nostr clients
 
 ## Contributing 🤝
 

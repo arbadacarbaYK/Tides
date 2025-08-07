@@ -299,7 +299,8 @@ async function loadUserData(user) {
     }
 
     // Render both contacts and groups
-    await renderContactList(contacts);
+    // Use contacts from the manager to get updated message times
+    await renderContactList(Array.from(contactManager.contacts.values()));
 
     const metadata = await getUserMetadata(user.pubkey);
     if (metadata) {
@@ -765,6 +766,7 @@ function createContactElement(contact) {
     } else {
       contextMenu.innerHTML = `
         <div class="context-menu-item" data-action="profile">See Profile</div>
+        <div class="context-menu-item" data-action="unfollow">Unfollow</div>
       `;
     }
     
@@ -809,6 +811,9 @@ function createContactElement(contact) {
           case 'profile':
             const metadata = await getUserMetadata(contact.pubkey);
             showProfileModal(contact.pubkey, metadata);
+            break;
+          case 'unfollow':
+            await unfollowContact(contact.pubkey);
             break;
         }
         contextMenu.remove();
@@ -2045,6 +2050,166 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 });
+
+// Function to unfollow a contact
+async function unfollowContact(pubkey) {
+  if (!confirm('Are you sure you want to unfollow this contact?')) {
+    return;
+  }
+
+  try {
+    const currentUser = await auth.getCurrentUser();
+    if (!currentUser) {
+      console.error('No current user found');
+      return;
+    }
+
+    // Check if this is a followed contact or just a non-contact (temporary)
+    const contact = contactManager.contacts.get(pubkey);
+    const isFollowedContact = contact && !contact.isTemporary;
+
+    if (isFollowedContact) {
+      // For followed contacts: Update follow list (kind 3)
+      console.log(`Unfollowing followed contact: ${pubkey.slice(0,8)}`);
+      
+      // Get current follow list (kind 3)
+      const followListEvents = await pool.list(RELAYS, [
+        {
+          kinds: [3],
+          authors: [currentUser.pubkey],
+          limit: 1
+        }
+      ]);
+
+      let currentFollowList = [];
+      let existingEvent = null;
+
+      if (followListEvents.length > 0) {
+        existingEvent = followListEvents[0];
+        // Extract pubkeys from p tags
+        currentFollowList = existingEvent.tags
+          .filter(tag => tag[0] === 'p')
+          .map(tag => tag[1]);
+      }
+
+      // Remove the unfollowed pubkey
+      const updatedFollowList = currentFollowList.filter(p => p !== pubkey);
+
+      // Create new follow list event
+      const updatedTags = updatedFollowList.map(p => ['p', p]);
+      
+      const followEvent = {
+        kind: 3,
+        pubkey: currentUser.pubkey,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: updatedTags,
+        content: existingEvent?.content || '',
+      };
+
+      // Sign and publish the updated follow list
+      let signedEvent;
+      if (currentUser.type === 'NSEC' && currentUser.privkey) {
+        // Use stored private key for NSEC login
+        followEvent.id = nostrCore.getEventHash(followEvent);
+        followEvent.sig = nostrCore.getSignature(followEvent, currentUser.privkey);
+        signedEvent = followEvent;
+      } else if (currentUser.type === 'NIP-07') {
+        // Use NIP-07 extension for signing
+        if (!window.nostr) {
+          throw new Error('NIP-07 extension not available');
+        }
+        signedEvent = await window.nostr.signEvent(followEvent);
+      } else {
+        throw new Error('No valid signing method available');
+      }
+      
+      // Filter out relays known to restrict writes
+      const writableRelays = RELAYS.filter(relay => 
+        !relay.includes('nostr.wine') // Known to require signup for writes
+      );
+      
+      await pool.publish(writableRelays, signedEvent);
+      console.log(`Published updated follow list to network`);
+      
+    } else {
+      // For non-contacts (temporary): Update mute list (NIP-51)
+      console.log(`Muting non-contact: ${pubkey.slice(0,8)}`);
+      
+      // Get current mute list
+      const muteListEvents = await pool.list(RELAYS, [
+        {
+          kinds: [10000], // NIP-51 mute list
+          authors: [currentUser.pubkey],
+          limit: 1
+        }
+      ]);
+
+      let currentMuteList = [];
+      if (muteListEvents.length > 0) {
+        currentMuteList = muteListEvents[0].tags
+          .filter(tag => tag[0] === 'p')
+          .map(tag => tag[1]);
+      }
+
+      // Add the new pubkey to mute list if not already there
+      if (!currentMuteList.includes(pubkey)) {
+        currentMuteList.push(pubkey);
+      }
+
+      // Create updated mute list event
+      const updatedMuteTags = currentMuteList.map(p => ['p', p]);
+      
+      const muteEvent = {
+        kind: 10000, // NIP-51 mute list
+        pubkey: currentUser.pubkey,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: updatedMuteTags,
+        content: '', // Empty content for mute lists
+      };
+
+      // Sign and publish the mute list
+      let signedMuteEvent;
+      if (currentUser.type === 'NSEC' && currentUser.privkey) {
+        muteEvent.id = nostrCore.getEventHash(muteEvent);
+        muteEvent.sig = nostrCore.getSignature(muteEvent, currentUser.privkey);
+        signedMuteEvent = muteEvent;
+      } else if (currentUser.type === 'NIP-07') {
+        if (!window.nostr) {
+          throw new Error('NIP-07 extension not available');
+        }
+        signedMuteEvent = await window.nostr.signEvent(muteEvent);
+      } else {
+        throw new Error('No valid signing method available');
+      }
+      
+      // Filter out relays known to restrict writes
+      const writableRelays = RELAYS.filter(relay => 
+        !relay.includes('nostr.wine')
+      );
+      
+      await pool.publish(writableRelays, signedMuteEvent);
+      console.log(`Published updated mute list to network (NIP-51)`);
+    }
+
+    // Remove from local contact list and refresh UI
+    contactManager.contacts.delete(pubkey);
+    contactManager.lastMessageTimes.delete(pubkey);
+    
+    // Also add to a local "unfollowed" list to prevent re-adding
+    if (!window.unfollowedContacts) {
+      window.unfollowedContacts = new Set();
+    }
+    window.unfollowedContacts.add(pubkey);
+    
+    // Refresh the contact list display
+    await renderContactList(Array.from(contactManager.contacts.values()));
+    
+    console.log(`${isFollowedContact ? 'Unfollowed' : 'Blocked'} contact: ${pubkey}`);
+  } catch (error) {
+    console.error('Error unfollowing contact:', error);
+    alert('Failed to unfollow contact. Please try again.');
+  }
+}
 
 // Add function to show profile modal
 async function showProfileModal(pubkey, metadata) {
