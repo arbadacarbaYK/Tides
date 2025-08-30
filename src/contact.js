@@ -75,21 +75,18 @@ class ContactManager {
         
         for (const event of dmEvents) {
           let partnerPubkey;
-          
+
           if (event.pubkey === currentUser.pubkey) {
-            // Sent by current user - find recipient in p tags
             const pTag = event.tags.find(tag => tag[0] === 'p');
             if (pTag && pTag[1]) {
               partnerPubkey = pTag[1];
             }
           } else {
-            // Received by current user - sender is the partner
             partnerPubkey = event.pubkey;
           }
-          
-          if (partnerPubkey && partnerPubkey !== currentUser.pubkey) {
-            // Simply add to conversation map without content filtering
-            // (Content filtering will happen during individual conversation display)
+
+          // Include self-DM threads (where partner equals current user)
+          if (partnerPubkey) {
             if (!conversationMap.has(partnerPubkey) || event.created_at > conversationMap.get(partnerPubkey)) {
               conversationMap.set(partnerPubkey, event.created_at);
             }
@@ -282,6 +279,18 @@ class ContactManager {
           console.error('Error loading unfollowed contacts:', error);
         }
         
+        // Ensure a self-contact exists for self-DM rendering
+        if (!this.contacts.has(currentUser.pubkey)) {
+          const selfMeta = await getUserMetadata(currentUser.pubkey);
+          this.contacts.set(currentUser.pubkey, {
+            pubkey: currentUser.pubkey.toLowerCase(),
+            npub: nostrCore.nip19.npubEncode(currentUser.pubkey),
+            displayName: selfMeta?.name || shortenIdentifier(nostrCore.nip19.npubEncode(currentUser.pubkey)),
+            avatarUrl: selfMeta?.picture || 'icons/default-avatar.png',
+            isOnline: false
+          });
+        }
+
         // Update lastMessageTimes for contacts who have conversations AND are still followed
         for (const [partnerPubkey, lastMessageTime] of conversationMap.entries()) {
           if (this.contacts.has(partnerPubkey)) {

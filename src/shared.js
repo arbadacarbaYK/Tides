@@ -30,8 +30,6 @@ export const RELAYS = [
   'wss://relay.primal.net',
   'wss://nostr.azzamo.net',
   'wss://nostr.einundzwanzig.space',
-  'wss://relay.nostr.net',
-  'wss://relay.nostr.watch',
   'wss://relay.minibits.cash'
 ];
 
@@ -52,23 +50,46 @@ export class RelayPool {
   }
 
   async ensureConnection() {
-    if (this.connectedRelays.size > 0) {
+    // Resolve early once a minimal healthy set is connected
+    const MIN_READY = 3;
+    if (this.connectedRelays.size >= MIN_READY) {
       return true;
     }
 
-    const connectionPromises = RELAYS.map(async (url) => {
+    const slowPattern = /nostr\.watch|relay\.nostr\.net/i;
+    const fastRelays = RELAYS.filter(url => !slowPattern.test(url));
+    const slowRelays = RELAYS.filter(url => slowPattern.test(url));
+
+    let resolveEarly;
+    const early = new Promise(res => { resolveEarly = res; });
+
+    const connect = async (url) => {
       try {
         await this.pool.ensureRelay(url);
         this.connectedRelays.add(url);
+        if (this.connectedRelays.size >= MIN_READY) {
+          resolveEarly(true);
+        }
         return true;
       } catch (error) {
         console.warn(`Failed to connect to relay: ${url}`, error);
         return false;
       }
-    });
+    };
 
-    const results = await Promise.allSettled(connectionPromises);
-    return results.some(r => r.status === 'fulfilled' && r.value === true);
+    // Connect fast relays first
+    const fastPromises = fastRelays.map(connect);
+
+    // Start slow relays in the background (do not block)
+    setTimeout(() => {
+      slowRelays.forEach(connect);
+    }, 0);
+
+    // Return as soon as MIN_READY reached, or when all fast relays settle
+    const settled = Promise.allSettled(fastPromises).then(results =>
+      results.some(r => r.status === 'fulfilled' && r.value === true)
+    );
+    return Promise.race([early, settled]);
   }
 
   // Ensure connections to a specific set of relays only (lightweight, capped)
