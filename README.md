@@ -7,9 +7,6 @@ Browser extension for Chromium-based browsers like Brave (recommended), Chrome, 
 width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/f83a865e-7aee-470d-bad1-e5e765004e3d"
 width="350" alt="Bildschirmfoto">
-
-<img src="https://github.com/user-attachments/assets/7826fcc3-9415-4b01-975c-b1c3a0132665"
-width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/56d344f0-0f4a-45ec-9d6a-e5af635ef456"
 width="350" alt="Bildschirmfoto">
 
