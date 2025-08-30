@@ -15,9 +15,10 @@ width="350" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/56d344f0-0f4a-45ec-9d6a-e5af635ef456"
 width="350" alt="Bildschirmfoto">
 
-<img width="350" src="https://github.com/user-attachments/assets/861d57d1-58b2-4f63-ba62-c19b25d9e09b" />
+<img src="https://github.com/user-attachments/assets/12ee9443-ab42-4c9f-9d3d-7e4ff6fcd112"
+height="250" alt="NWC">
 <img height="250" src="https://github.com/user-attachments/assets/5002ea1c-1ea0-419a-ac01-088a899a2256" />
-
+<img src="https://github.com/user-attachments/assets/375aac87-b553-465b-82df-f412c62d09e7" height="250" alt="NWC">
 
 ## Features 🚀
 
@@ -65,7 +66,7 @@ npm run build
 ```
 
 Load the `dist` directory as an unpacked extension in your browser.
-
+You can find more info in Setup Instructions.
 
 ### Project Structure
 
@@ -99,7 +100,7 @@ Tides supports zapping via Nostr Wallet Connect (NIP‑47):
 - Connect your wallet in Settings → NWC and paste your NWC URI
 - In any chat, use the zap button → choose “Pay with NWC” (or scan QR)
 - We show clear success/error status without closing the modal prematurely
-- Your custom message is included in the zap receipt (NIP‑57)
+- Your custom message is included in the zap receipt (NIP‑57; for NWC zaps not yet shown on all apps)
 
 #### NIPs and Kinds at a Glance
 
@@ -141,14 +142,9 @@ Tides supports zapping via Nostr Wallet Connect (NIP‑47):
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## Support ⚡
-
-If you find this project useful, please consider sending a zap to support development at arbadacarba@btip.nl!
-
 ## License 📄
 
 Licensed under [Creative Commons Attribution-NonCommercial 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
-
 **You can**: Share, remix, adapt  
 **Requirements**: Attribution, non-commercial use only
 
