@@ -420,8 +420,6 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
           created_at: Math.floor(Date.now() / 1000)
         };
 
-        console.log('📝 Creating group with metadata:', metadata);
-
         // Create the group creation event (kind 40)
         const event = {
           kind: 40, // Group creation kind - MUST be 40 for new groups
@@ -435,23 +433,23 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
           content: JSON.stringify(metadata)
         };
 
-        console.log('📝 Raw event before signing:', event);
+        // Preparing to sign group creation event
 
         if (currentUser.type === 'NIP-07') {
-          console.log('🔐 Signing with NIP-07...');
+          // Signing with NIP-07...
           const signed = await window.nostr.signEvent(event);
           event.id = signed.id;
           event.sig = signed.sig;
           event.pubkey = signed.pubkey;
-          console.log('✅ Event signed with NIP-07');
+          // Event signed with NIP-07
         } else {
-          console.log('🔐 Signing with private key...');
+          // Signing with private key...
           event.id = NostrTools.getEventHash(event);
           event.sig = NostrTools.getSignature(event, currentUser.privkey);
-          console.log('✅ Event signed with private key');
+          // Event signed with private key
         }
 
-        console.log('📡 Publishing group creation event:', event);
+        // Publishing group creation event
 
         // Ensure connections and use the main shared pool
         await relayPool.ensureConnection();

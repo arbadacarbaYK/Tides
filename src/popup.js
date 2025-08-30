@@ -1,8 +1,6 @@
 // CRITICAL TEST: Check if popup.js is actually running
 window.popupJsLoaded = true;
-console.log('🚨 POPUP.JS GLOBAL FLAG SET:', window.popupJsLoaded);
-
-console.log('🚨 POPUP.JS LOADING STARTED!');
+// Startup markers (kept minimal)
 
 import { auth } from './auth.js';
 import { fetchContacts, setContacts, contactManager, getContact } from './contact.js';
@@ -37,12 +35,7 @@ let searchHistory = [];
 let currentGroupId = null; 
 let isModalOpen = false; // Prevent multiple modals from opening
 
-// CRITICAL TEST: Make a simple function available globally
-window.testPopupJs = () => {
-  console.log('🚨 TEST: popup.js function is accessible!');
-  return 'popup.js is working!';
-};
-console.log('🚨 TEST FUNCTION CREATED:', typeof window.testPopupJs);
+// Cleanup: removed leftover test hook to speed startup
 
 function showCreateGroupModal() {
   console.log('🚀 showCreateGroupModal FUNCTION STARTED');
@@ -133,7 +126,6 @@ function showCreateGroupModal() {
 }
 
 async function handleCreateGroup(name, about, picture) {
-  console.log('🚨 handleCreateGroup called with:', { name, about, picture });
   
   try {
     console.log('🔍 About to call window.groupContactManager.createGroup...');
@@ -217,11 +209,11 @@ function initializeGifButton() {
           if (query) {
             const results = await giphyService.searchGifs(query);
             renderGifs(results, gifGrid);
-          } else {
+        } else {
             const trending = await giphyService.getTrendingGifs();
             renderGifs(trending, gifGrid);
           }
-        } catch (error) {
+      } catch (error) {
           showErrorMessage('GIF search failed');
         }
       }, 300);
@@ -295,9 +287,6 @@ async function initializeUI() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('🚨 DOM CONTENT LOADED!');
-  console.log('🚨 About to start initialization...');
-  console.log('🚨 Contact list element exists:', !!document.getElementById('contactList'));
   
   // Suppress network errors for missing images to reduce console spam
   window.addEventListener('error', (e) => {
@@ -430,12 +419,12 @@ async function loadUserData(user) {
     setContacts(contacts);
 
     // Initialize groups - wait for groupContact.js to load
-    console.log('🔍 Waiting for groupContactManager to be available...');
+    // Wait until groupContactManager is available
     let attempts = 0;
     const maxAttempts = 50; // Wait up to 5 seconds
     
     while (!window.groupContactManager && attempts < maxAttempts) {
-      console.log(`🔍 Attempt ${attempts + 1}/${maxAttempts}: groupContactManager not ready yet...`);
+      // retry until ready
       await new Promise(resolve => setTimeout(resolve, 100));
       attempts++;
     }
@@ -646,12 +635,7 @@ function updateUIWithMetadata(metadata) {
         const nwcInputSection = modal.querySelector('.nwc-input-section') || modal.querySelector('[class*="nwc-input"]');
         const nwcUriInput = modal.querySelector('#nwc-uri') || modal.querySelector('input[placeholder*="nostr+walletconnect"]');
         
-        console.log('NWC elements found:', {
-          nwcConnectBtn: !!nwcConnectBtn,
-          nwcDisconnectBtn: !!nwcDisconnectBtn,
-          nwcInputSection: !!nwcInputSection,
-          nwcUriInput: !!nwcUriInput
-        });
+        // NWC elements discovered
         
         console.log('NWC input element:', nwcUriInput);
         console.log('NWC input section element:', nwcInputSection);
@@ -668,7 +652,7 @@ function updateUIWithMetadata(metadata) {
           nwcUriInput.style.background = 'white !important';
           nwcUriInput.style.color = 'black !important';
           nwcUriInput.style.border = '1px solid #ccc';
-          console.log('NWC input field made editable');
+          // NWC input field made editable
         } else {
           console.error('NWC input field NOT FOUND!');
           // Try to find it by looking at all inputs in the modal
@@ -706,7 +690,7 @@ function updateUIWithMetadata(metadata) {
               delayedInput.style.background = 'white !important';
               delayedInput.style.color = 'black !important';
               delayedInput.style.border = '1px solid #ccc';
-              console.log('Delayed NWC input field made editable');
+              // Delayed NWC input field made editable
             } else {
               console.error('NWC input still not found after delay');
             }
@@ -808,7 +792,7 @@ function updateUIWithMetadata(metadata) {
 }
 
 async function renderContactList(contacts, filterTerm = '') {
-  console.log('🚨 renderContactList CALLED with contacts:', contacts?.length || 0);
+  // renderContactList start
   const normalizedFilter = (filterTerm || '').toLowerCase().trim();
   const matchesFilter = (name = '', npub = '', about = '') => {
     if (!normalizedFilter) return true;
@@ -821,12 +805,12 @@ async function renderContactList(contacts, filterTerm = '') {
   
   // Prevent multiple simultaneous calls to avoid infinite loops
   if (window.isRenderingContactList) {
-    console.log('🔒 renderContactList already in progress, skipping duplicate call');
+    // renderContactList already in progress; skip
     return;
   }
   
   window.isRenderingContactList = true;
-  console.log('🔓 Starting renderContactList...');
+  // start rendering
   
   const contactList = document.getElementById('contactList');
   if (!contactList) {
@@ -876,29 +860,25 @@ async function renderContactList(contacts, filterTerm = '') {
   const existingButtons = groupContent.querySelectorAll('.create-group-button');
   existingButtons.forEach(btn => btn.remove());
   
-  console.log('🔧 Creating new create group button...');
+  // create group button
   
   const createGroupButton = document.createElement('button');
   createGroupButton.className = 'create-group-button';
   createGroupButton.innerHTML = '<span>Create New Group</span>';
   
-  console.log('🔧 Button created:', createGroupButton);
-  console.log('🔧 Button class:', createGroupButton.className);
+  // button created
   console.log('🔧 Button HTML:', createGroupButton.innerHTML);
   
   // Add click event listener directly to avoid initialization complexity
   console.log('🔧 Adding click event listener...');
   
   createGroupButton.addEventListener('click', (event) => {
-    console.log('🔍 Create group button clicked!');
-    console.log('🔍 Event object:', event);
-    console.log('🔍 Button element:', event.target);
-    console.log('🔍 showCreateGroupModal function exists:', typeof showCreateGroupModal);
+    // create group button clicked
     
     try {
-      console.log('🔍 About to call showCreateGroupModal...');
+      // call showCreateGroupModal
       showCreateGroupModal();
-      console.log('🔍 showCreateGroupModal called successfully');
+      // modal opened
     } catch (error) {
       console.error('❌ Error calling showCreateGroupModal:', error);
       console.error('❌ Error stack:', error.stack);
@@ -1148,7 +1128,7 @@ async function renderContactList(contacts, filterTerm = '') {
   
   // Reset the rendering flag
   window.isRenderingContactList = false;
-  console.log('🔓 renderContactList completed, flag reset');
+  // renderContactList complete
 }
 
 // Remove duplicate plain filter; initializeUI wires a richer search that filters all sections
@@ -1299,7 +1279,7 @@ function createContactElement(contact) {
             }
             break;
           case 'leave':
-            console.log('🚨 LEAVE GROUP clicked for:', contact);
+            // LEAVE GROUP clicked
             await showLeaveGroupModal(contact);
             break;
           case 'profile':
@@ -2495,12 +2475,11 @@ async function showQRModal(invoice, zapRequest = null) {
           throw new Error(response.error);
         }
         
-        // FIXED: Check if the payment actually succeeded
         if (!response?.ok && !response?.result?.success) {
           throw new Error('Payment failed - no success confirmation received');
         }
         
-        // Success! Show visual feedback then close modal
+        // Success! Show visual feedback and keep modal open so user sees status
         nwcPayButton.textContent = '✅ Zap Sent!';
         nwcPayButton.style.background = '#4CAF50';
         nwcPayButton.style.color = 'white';
@@ -2509,15 +2488,11 @@ async function showQRModal(invoice, zapRequest = null) {
         nwcPayButton.style.transform = 'scale(1.1)';
         nwcPayButton.style.transition = 'all 0.3s ease';
         
-        setTimeout(() => {
-          modal.remove();
-          showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
-        }, 1500);
+        showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
+        if (closeButton) closeButton.disabled = false;
         return;
       }
       
-      // HARMONIZED: Both buttons now use the same underlying payment function
-      // Since we have the invoice, we can pay it directly via NWC
       const response = await chrome.runtime.sendMessage({
         type: 'PAY_INVOICE_VIA_NWC',
         data: { 
@@ -2533,12 +2508,11 @@ async function showQRModal(invoice, zapRequest = null) {
         throw new Error(response.error);
       }
       
-      // FIXED: Check if the payment actually succeeded
       if (!response?.ok && !response?.result?.success) {
         throw new Error('Payment failed - no success confirmation received');
       }
       
-      // Success! Show visual feedback then close modal
+      // Success! Show visual feedback and keep modal open so user sees status
       nwcPayButton.textContent = '✅ Zap Sent!';
       nwcPayButton.style.background = '#4CAF50';
       nwcPayButton.style.color = 'white';
@@ -2547,15 +2521,12 @@ async function showQRModal(invoice, zapRequest = null) {
       nwcPayButton.style.transform = 'scale(1.1)';
       nwcPayButton.style.transition = 'all 0.3s ease';
       
-      setTimeout(() => {
-        modal.remove();
-        showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
-      }, 1500);
+      showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
+      if (closeButton) closeButton.disabled = false;
       
     } catch (error) {
       console.error('NWC payment failed:', error);
       showErrorMessage(`NWC payment failed: ${error.message}`);
-      // Error visual state
       nwcPayButton.textContent = '❌ Not successful - Retry';
       nwcPayButton.disabled = false;
       nwcPayButton.classList.remove('success-button');
@@ -2581,7 +2552,7 @@ chrome.runtime.onMessage.addListener((message) => {
     const { messageId, amount } = message.data;
     updateZapAmount(messageId, amount);
   }
-  return true;  // Important for Chrome message listeners
+  return true;  
 });
 
 function updateZapAmount(messageId, amount) {
@@ -2620,18 +2591,14 @@ async function loadSearchHistory() {
 // Function to save search history
 async function saveSearchHistory(term) {
   try {
-    // First get the current history
     const result = await chrome.storage.local.get('searchHistory');
     let currentHistory = result.searchHistory || [];
     
-    // Only add if term isn't already in history
     if (!currentHistory.includes(term)) {
       currentHistory.unshift(term);
       if (currentHistory.length > 5) currentHistory.pop();
       
-      // Save the updated history
       await chrome.storage.local.set({ searchHistory: currentHistory });
-      // Update the global searchHistory variable
       searchHistory = currentHistory;
     }
   } catch (error) {
@@ -3058,12 +3025,7 @@ async function showProfileModal(pubkey, metadata) {
     const nwcInputSection = modal.querySelector('.nwc-input-section') || modal.querySelector('[class*="nwc-input"]');
     const nwcUriInput = modal.querySelector('#nwc-uri') || modal.querySelector('input[placeholder*="nostr+walletconnect"]');
     
-    console.log('NWC elements found:', {
-      nwcConnectBtn: !!nwcConnectBtn,
-      nwcDisconnectBtn: !!nwcDisconnectBtn,
-      nwcInputSection: !!nwcInputSection,
-      nwcUriInput: !!nwcUriInput
-    });
+    // NWC elements discovered
     
     console.log('NWC input element:', nwcUriInput);
     console.log('NWC input section element:', nwcInputSection);
@@ -3080,7 +3042,7 @@ async function showProfileModal(pubkey, metadata) {
       nwcUriInput.style.background = 'white !important';
       nwcUriInput.style.color = 'black !important';
       nwcUriInput.style.border = '1px solid #ccc';
-      console.log('NWC input field made editable');
+      // NWC input field editable
     } else {
       console.error('NWC input field NOT FOUND!');
       // Try to find it by looking at all inputs in the modal
@@ -3118,7 +3080,7 @@ async function showProfileModal(pubkey, metadata) {
           delayedInput.style.background = 'white !important';
           delayedInput.style.color = 'black !important';
           delayedInput.style.border = '1px solid #ccc';
-          console.log('Delayed NWC input field made editable');
+          // Delayed NWC input field editable
         } else {
           console.error('NWC input still not found after delay');
         }
@@ -4059,8 +4021,7 @@ async function saveUnfollowedContacts() {
 }
 
 // Test if group management functions exist
-console.log('🔍 showCreateGroupModal function exists:', typeof showCreateGroupModal);
-console.log('🔍 leaveGroup function exists:', typeof leaveGroup);
+// Functions available for UI actions confirmed
 
 /**
  * @file popup.js

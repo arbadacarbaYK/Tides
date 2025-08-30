@@ -1,4 +1,4 @@
-import { SimplePool, nip19, getPublicKey, getEventHash, getSignature, nip04 } from 'nostr-tools';
+import { SimplePool, nip19, getPublicKey, getEventHash, getSignature, nip04, nip44 } from 'nostr-tools';
 
 // Core nostr functionality export
 export const nostrCore = {
@@ -10,6 +10,9 @@ export const nostrCore = {
   encrypt: nip04.encrypt,
   decrypt: nip04.decrypt
 };
+
+// Add NIP-44 helpers if available
+nostrCore.nip44 = nip44;
 
 // Export pool instance for direct use
 export const pool = new SimplePool({
@@ -65,6 +68,24 @@ export class RelayPool {
     });
 
     const results = await Promise.allSettled(connectionPromises);
+    return results.some(r => r.status === 'fulfilled' && r.value === true);
+  }
+
+  // Ensure connections to a specific set of relays only (lightweight, capped)
+  async ensureSpecificConnections(relayUrls = []) {
+    const urls = (relayUrls || [])
+      .filter(u => typeof u === 'string' && (u.startsWith('wss://') || u.startsWith('ws://')));
+    const promises = urls.map(async (url) => {
+      if (this.connectedRelays.has(url)) return true;
+      try {
+        await this.pool.ensureRelay(url);
+        this.connectedRelays.add(url);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    });
+    const results = await Promise.allSettled(promises);
     return results.some(r => r.status === 'fulfilled' && r.value === true);
   }
 

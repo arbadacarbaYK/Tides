@@ -43,12 +43,12 @@ class ContactManager {
         // Query for all DMs involving the current user (no limits to catch old conversations)
         const dmFilters = [
           {
-            kinds: [4],
+            kinds: [4, 14],
             authors: [currentUser.pubkey]
             // No limit - we want ALL DMs the user has ever sent
           },
           {
-            kinds: [4],
+            kinds: [4, 14],
             '#p': [currentUser.pubkey]
             // No limit - we want ALL DMs the user has ever received
           }
@@ -414,7 +414,7 @@ export async function fetchContacts(pubkey) {
     
     // Also fetch kind 4 message events to discover contacts from messages
     const messageFilter = {
-      kinds: [4],
+      kinds: [4, 14],
       '#p': [pubkey]
     };
     
