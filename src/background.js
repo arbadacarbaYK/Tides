@@ -21,6 +21,16 @@ var Background = (function(NostrTools) {
   ];
 
   // Utils
+  const getPublicKeyFromPrivateKey = async (privateKey) => {
+    try {
+      // Use nostr-tools to get public key from private key
+      return NostrTools.getPublicKey(privateKey);
+    } catch (error) {
+      console.error('Failed to get public key from private key:', error);
+      throw new Error('Invalid private key');
+    }
+  };
+
   const validateEvent = (event) => {
     try {
       return event && 'object' === typeof event && event.id && event.pubkey && 
@@ -355,8 +365,266 @@ var Background = (function(NostrTools) {
     }
   });
 
+  // NWC Payment Functions
+  const sendEventToNWCRelay = async (event, nwcConfig) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const relay = nwcConfig.relayUrls[0];
+
+        
+        const ws = new WebSocket(relay);
+        
+        ws.onopen = () => {
+          ws.send(JSON.stringify(['EVENT', event]));
+        };
+        
+        ws.onmessage = (message) => {
+          try {
+            const response = JSON.parse(message.data);
+            
+            if (response[0] === 'OK' && response[2] === true) {
+              ws.close();
+              resolve(response);
+            } else {
+              ws.close();
+              reject(new Error(`Event publish failed: ${JSON.stringify(response)}`));
+            }
+          } catch (error) {
+            ws.close();
+            reject(error);
+          }
+        };
+        
+        ws.onerror = (error) => {
+          reject(new Error(`WebSocket error: ${error.message}`));
+        };
+        
+        ws.onclose = () => {
+          // Silent close
+        };
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close();
+            reject(new Error('WebSocket timeout'));
+          }
+        }, 10000);
+        
+      } catch (error) {
+        console.error('sendEventToNWCRelay error:', error);
+        reject(error);
+      }
+    });
+  };
+
+  const payInvoiceViaNWC = async (invoice, nwcConfig) => {
+    try {
+
+      
+      // Step 1: Check balance before payment
+
+      const balanceBeforeEvent = {
+        kind: 23194,
+        content: '', // Empty content for balance check
+        tags: [['p', nwcConfig.walletPubkey]],
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: nwcConfig.clientPubkey
+      };
+      
+      // Sign the balance check event
+      balanceBeforeEvent.id = nostrCore.getEventHash(balanceBeforeEvent);
+      balanceBeforeEvent.sig = await nostrCore.getSignature(balanceBeforeEvent, nwcConfig.clientSecret);
+      
+      // Send balance check
+      await sendEventToNWCRelay(balanceBeforeEvent, nwcConfig);
+      
+      // Encrypt the invoice using NIP-04
+      const encryptedContent = await NostrTools.nip04.encrypt(
+        nwcConfig.clientSecret,
+        nwcConfig.walletPubkey,
+        JSON.stringify({
+          method: 'pay_invoice',
+          params: {
+            invoice: invoice
+          }
+        })
+      );
+      
+      const paymentEvent = {
+        kind: 23194,
+        content: encryptedContent,
+        tags: [['p', nwcConfig.walletPubkey]],
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: nwcConfig.clientPubkey
+      };
+      
+      // Sign the payment event
+      paymentEvent.id = nostrCore.getEventHash(paymentEvent);
+      paymentEvent.sig = await nostrCore.getSignature(paymentEvent, nwcConfig.clientSecret);
+      
+      // Send payment request
+      await sendEventToNWCRelay(paymentEvent, nwcConfig);
+
+      
+      // Step 3: Check balance after payment (wait 5 seconds)
+
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+
+      const balanceAfterEvent = {
+        kind: 23194,
+        content: '', // Empty content for balance check
+        tags: [['p', nwcConfig.walletPubkey]],
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: nwcConfig.clientPubkey
+      };
+      
+      // Sign the balance check event
+      balanceAfterEvent.id = nostrCore.getEventHash(balanceAfterEvent);
+      balanceAfterEvent.sig = await nostrCore.getSignature(balanceAfterEvent, nwcConfig.clientSecret);
+      
+      // Send balance check
+      await sendEventToNWCRelay(balanceAfterEvent, nwcConfig);
+
+      return { success: true, message: 'Payment sent successfully' };
+      
+    } catch (error) {
+      console.error('❌ NWC payment failed:', error);
+      throw error;
+    }
+  };
+
   // Add this to your message listener
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // NWC: Connect to wallet using existing credentials
+    if (message.type === 'NWC_CONNECT') {
+      (async () => {
+        try {
+          const { uri } = message.data || {};
+          if (!uri || typeof uri !== 'string' || !uri.startsWith('nostr+walletconnect://')) {
+            sendResponse({ error: 'Invalid NWC URI' });
+            return;
+          }
+
+          console.log('Parsing NWC URI');
+          
+          // Parse the NWC URI to extract components
+          const match = uri.match(/^nostr\+walletconnect:\/\/([^?]+)\?(.+)$/);
+          if (!match) {
+            sendResponse({ error: 'Invalid NWC URI format' });
+            return;
+          }
+
+          const walletPubkey = match[1];
+          const params = new URLSearchParams(match[2]);
+          const relay = params.get('relay');
+          const secret = params.get('secret');
+          const lud16 = params.get('lud16');
+
+          if (!walletPubkey || !relay || !secret) {
+            sendResponse({ error: 'Missing required NWC parameters' });
+            return;
+          }
+
+          // Generate client pubkey from secret (private key)
+          const clientPubkey = await getPublicKeyFromPrivateKey(secret);
+
+          // Store NWC configuration
+          const nwcConfig = {
+            walletPubkey,
+            relayUrls: [relay],
+            clientSecret: secret,
+            clientPubkey,
+            encryption: 'nip04',
+            methods: ['pay_invoice', 'get_balance', 'get_info', 'list_transactions', 'make_invoice', 'lookup_invoice'],
+            alias: lud16 || 'NWC Wallet',
+            network: 'mainnet',
+            uri: uri,
+            sharedSecret: secret,
+            supportsLightning: true,
+            supportsCashu: true
+          };
+
+          await chrome.storage.local.set({ nwcConfig });
+          
+          console.log('NWC connected successfully:', {
+            walletPubkey: nwcConfig.walletPubkey,
+            clientPubkey: nwcConfig.clientPubkey,
+            relay: nwcConfig.relayUrls[0]
+          });
+
+          sendResponse({ 
+            ok: true, 
+            walletName: nwcConfig.alias,
+            config: nwcConfig 
+          });
+
+        } catch (error) {
+          console.error('NWC connection failed:', error);
+          sendResponse({ error: error.message || 'Failed to connect NWC' });
+        }
+      })();
+      return true;
+    }
+
+    // NWC: Disconnect from wallet
+    if (message.type === 'NWC_DISCONNECT') {
+      (async () => {
+        try {
+          await chrome.storage.local.remove('nwcConfig');
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ error: error.message || 'Failed to disconnect NWC' });
+        }
+      })();
+      return true;
+    }
+
+    // NWC: Pay invoice using NWC implementation
+    if (message.type === 'PAY_INVOICE_VIA_NWC') {
+      (async () => {
+        try {
+          const { invoice, zapRequest, relays } = message.data || {};
+          if (!invoice) {
+            sendResponse({ error: 'No invoice provided' });
+            return;
+          }
+
+          // Get NWC configuration from storage
+          const { nwcConfig } = await chrome.storage.local.get(['nwcConfig']);
+          if (!nwcConfig) {
+            sendResponse({ error: 'NWC not connected. Please connect to a wallet first.' });
+            return;
+          }
+
+          // Use the NWC payment function
+          const result = await payInvoiceViaNWC(invoice, nwcConfig);
+          
+          // NEW: Create and send zap receipt if this was a zap payment
+          let zapReceiptResult = null;
+          if (result.success && zapRequest && relays && relays.length > 0) {
+            // Extract amount from zap request for the receipt, or use message data if available
+            const amount = message.data.amount || zapRequest.tags?.find(tag => tag[0] === 'amount')?.[1] || '5000';
+            const paymentData = { ...result, amount, message: message.data.message || zapRequest.content || 'Zapped via NWC', invoice: message.data.invoice };
+            zapReceiptResult = await Background.createAndSendZapReceipt.call(Background, zapRequest, paymentData, relays);
+          }
+          
+          sendResponse({ 
+            ok: true, 
+            result: result,
+            zapReceipt: zapReceiptResult,
+            message: 'Payment sent successfully via NWC'
+          });
+
+        } catch (error) {
+          console.error('NWC payment failed:', error);
+          sendResponse({ error: error.message || 'NWC payment failed' });
+        }
+      })();
+      return true;
+    }
+
     if (message.type === 'GET_ZAP_INVOICE') {
       (async () => {
         try {
@@ -376,11 +644,7 @@ var Background = (function(NostrTools) {
           }
 
           // Rest of the zap invoice logic only runs if not ln.tips
-          console.log('Starting zap request with:', {
-            lightningAddress,
-            amount,
-            zapRequest
-          });
+          
 
           if (!amount || isNaN(parseInt(amount)) || amount <= 0) {
             sendResponse({ error: 'Invalid amount' });
@@ -397,21 +661,31 @@ var Background = (function(NostrTools) {
           const lnurlEndpoint = await getLNURLFromAddress(lightningAddress);
           
           if (lnurlEndpoint) {
-            console.log('LNURL endpoint:', lnurlEndpoint);
-
             // First request: Get LNURL data
-            console.log('Fetching LNURL data from:', lnurlEndpoint);
             const lnurlResponse = await fetch(lnurlEndpoint);
-            
-            console.log('LNURL Response Status:', lnurlResponse.status);
             
             if (!lnurlResponse.ok) {
               const errorText = await lnurlResponse.text();
-              throw new Error(`LNURL fetch failed (${lnurlResponse.status}): ${errorText || '[Empty Error Response]'}`);
+              const domain = new URL(lnurlEndpoint).hostname;
+              
+              // Provide user-friendly error messages based on status codes
+              let userMessage;
+              if (lnurlResponse.status === 500) {
+                userMessage = `The lightning server (${domain}) is experiencing technical difficulties. Please try again later.`;
+              } else if (lnurlResponse.status === 404) {
+                userMessage = `Lightning address not found on ${domain}. Please verify the address is correct.`;
+              } else if (lnurlResponse.status >= 500) {
+                userMessage = `The lightning server (${domain}) is temporarily unavailable. Please try again later.`;
+              } else if (lnurlResponse.status >= 400) {
+                userMessage = `Invalid request to ${domain}. Please check your lightning address.`;
+              } else {
+                userMessage = `Failed to connect to ${domain} (${lnurlResponse.status}). Please try again.`;
+              }
+              
+              throw new Error(userMessage);
             }
 
             const lnurlResponseText = await lnurlResponse.text();
-            console.log('Raw LNURL Response:', lnurlResponseText || '[Empty Response]');
 
             if (!lnurlResponseText) {
               throw new Error('LNURL endpoint returned empty response');
@@ -423,8 +697,6 @@ var Background = (function(NostrTools) {
             } catch (e) {
               throw new Error(`Invalid LNURL JSON response: ${e.message}\nRaw response: ${lnurlResponseText}`);
             }
-
-            console.log('Parsed LNURL data:', lnurlData);
 
             if (!lnurlData.callback) {
               throw new Error(`Missing callback URL in LNURL response: ${JSON.stringify(lnurlData)}`);
@@ -452,8 +724,7 @@ var Background = (function(NostrTools) {
             const nostrParam = JSON.stringify(zapRequest);
             callbackUrl.searchParams.append('nostr', nostrParam);
             
-            console.log('Callback URL:', callbackUrl.toString());
-            console.log('Zap request data:', zapRequest);
+
 
             // Get invoice with retry logic
             const invoice = await getInvoice(callbackUrl);
@@ -492,7 +763,226 @@ var Background = (function(NostrTools) {
     soundManager,
     pool,
     contacts,
-    auth
+    auth,
+    
+    // Zap Receipt Functions (NIP-57) - NEW ADDITION
+    createAndSendZapReceipt: async (zapRequest, paymentResult, relays) => {
+      try {
+
+        
+        if (!zapRequest || !relays || relays.length === 0) {
+          console.warn('Missing zap request or relays for receipt creation');
+          return;
+        }
+
+        // Get the current user's credentials for proper signing
+        let currentUser = await auth.getCurrentUser();
+        
+        if (!currentUser) {
+          console.warn('No authenticated user found, cannot create valid zap receipt');
+          return { success: false, error: 'User not authenticated' };
+        }
+        
+        // Check if currentUser is still encrypted (should be an object, not a string)
+        if (typeof currentUser === 'string' && currentUser.length > 100) {
+          try {
+            // The background script's auth returns encrypted data, so we need to decrypt it
+            const { encryptionKey } = await chrome.storage.sync.get('encryptionKey');
+            
+            if (!encryptionKey) {
+              throw new Error('No encryption key found');
+            }
+            
+            // Convert encrypted data from base64
+            const combined = new Uint8Array(
+              atob(currentUser).split('').map(char => char.charCodeAt(0))
+            );
+            
+            // Extract IV and encrypted data
+            const iv = combined.slice(0, 12);
+            const data = combined.slice(12);
+            
+            // Import decryption key
+            const key = await crypto.subtle.importKey(
+              'raw',
+              new Uint8Array(encryptionKey).buffer,
+              { name: 'AES-GCM', length: 256 },
+              false,
+              ['decrypt']
+            );
+            
+            // Decrypt the data
+            const decrypted = await crypto.subtle.decrypt(
+              { name: 'AES-GCM', iv },
+              key,
+              data
+            );
+            
+            const decryptedStr = new TextDecoder().decode(decrypted);
+            const decryptedUser = JSON.parse(decryptedStr);
+            
+            // Replace currentUser with decrypted data
+            currentUser = decryptedUser;
+            
+          } catch (decryptError) {
+            console.error('❌ Manual decryption failed:', decryptError);
+            return { success: false, error: 'Failed to decrypt user credentials' };
+          }
+        }
+        
+
+
+
+        
+        // Create zap receipt event (kind 9735) according to NIP-57
+        // Create zap receipt tags - only include 'e' tag if we have a zap request ID
+        const zapReceiptTags = [
+          ['p', zapRequest.pubkey], // Recipient pubkey
+          ['bolt11', paymentResult.invoice || ''], // Lightning invoice that was paid
+          ['description', JSON.stringify({
+            kind: zapRequest.kind,
+            pubkey: zapRequest.pubkey,
+            created_at: zapRequest.created_at,
+            content: zapRequest.content,
+            tags: zapRequest.tags
+          })], // Safe zap request description
+          ['amount', paymentResult.amount || '5000'], // Amount in millisats
+          ['relays', ...relays] // All relays from zap request
+        ];
+
+        // Add 'e' tag only if zapRequest has an ID
+        if (zapRequest.id) {
+          zapReceiptTags.splice(1, 0, ['e', zapRequest.id]); // Insert after 'p' tag
+        }
+
+        const zapReceipt = {
+          kind: 9735,
+          pubkey: currentUser.pubkey, // Use the actual user's Nostr pubkey
+          content: '', // Empty content for zap receipts
+          tags: zapReceiptTags,
+          created_at: Math.floor(Date.now() / 1000)
+        };
+
+        // Validate required fields before proceeding
+        
+        if (!zapReceipt.pubkey || !zapReceipt.kind || !zapReceipt.created_at) {
+          console.error('❌ Zap receipt missing required fields:', {
+            pubkey: zapReceipt.pubkey,
+            kind: zapReceipt.kind,
+            created_at: zapReceipt.created_at
+          });
+          console.error('❌ Full zapReceipt object:', zapReceipt);
+          console.error('❌ Full currentUser object:', currentUser);
+          throw new Error('Zap receipt missing required fields');
+        }
+
+        // Debug: Log the zap receipt before calculating hash
+
+        
+        // Calculate the event ID first (required for signing)
+        try {
+          zapReceipt.id = nostrCore.getEventHash(zapReceipt);
+        } catch (hashError) {
+          console.error('❌ Failed to calculate zapReceipt hash:', hashError);
+          throw hashError;
+        }
+        
+        if (currentUser.type === 'NSEC' && currentUser.privkey) {
+          // Sign with private key if available
+          zapReceipt.sig = await nostrCore.getSignature(zapReceipt, currentUser.privkey);
+        } else if (currentUser.type === 'NIP-07') {
+          // For NIP-07, we need to use the extension to sign
+          try {
+            if (typeof window?.nostr !== 'undefined') {
+              zapReceipt.sig = await window.nostr.signEvent(zapReceipt);
+            } else {
+              console.warn('NIP-07 extension not available in background context');
+              return { success: false, error: 'NIP-07 extension not available' };
+            }
+          } catch (signError) {
+            console.error('Failed to sign with NIP-07 extension:', signError);
+            return { success: false, error: 'Failed to sign zap receipt' };
+          }
+        } else {
+          console.warn('Unknown user type, cannot sign zap receipt');
+          return { success: false, error: 'Unknown user authentication type' };
+        }
+        
+        // Send to all relays from the zap request (NOT the NWC relay!)
+        let successCount = 0;
+        for (const relay of relays) {
+          try {
+            if (relay.startsWith('wss://')) {
+              // Send via WebSocket to relay
+              await Background.sendEventToRelay(zapReceipt, relay);
+              successCount++;
+            } else {
+              console.warn(`Skipping non-WebSocket relay: ${relay}`);
+            }
+          } catch (error) {
+            console.error(`Failed to send zap receipt to ${relay}:`, error);
+          }
+        }
+        
+        console.log(`✅ Zap receipt sent to ${successCount}/${relays.length} relays`);
+        return { success: true, sentTo: successCount, total: relays.length };
+        
+      } catch (error) {
+        console.error('❌ Failed to create/send zap receipt:', error);
+        // Don't throw - zap receipt failure shouldn't break the payment flow
+        return { success: false, error: error.message };
+      }
+    },
+    
+    // Helper function to send events to relays (separate from NWC)
+    sendEventToRelay: async (event, relay) => {
+      return new Promise((resolve, reject) => {
+        try {
+          const ws = new WebSocket(relay);
+          
+          ws.onopen = () => {
+            ws.send(JSON.stringify(['EVENT', event]));
+          };
+          
+          ws.onmessage = (message) => {
+            try {
+              const response = JSON.parse(message.data);
+              
+              if (response[0] === 'OK' && response[2] === true) {
+                ws.close();
+                resolve(response);
+              } else {
+                ws.close();
+                resolve(response); // Resolve anyway, don't fail the whole process
+              }
+            } catch (error) {
+              ws.close();
+              resolve({ error: 'Parse error' }); // Resolve anyway
+            }
+          };
+          
+          ws.onerror = (error) => {
+            reject(new Error(`WebSocket error: ${error.message}`));
+          };
+          
+          ws.onclose = () => {
+            // Silent close
+          };
+          
+          // Timeout after 10 seconds
+          setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close();
+              reject(new Error('WebSocket timeout'));
+            }
+          }, 10000);
+          
+        } catch (error) {
+          console.error('sendEventToRelay error:', error);
+          reject(error);
+        }
+      });
+    }
   };
 
 })(NostrTools);
@@ -695,7 +1185,7 @@ async function getLNURLFromAddress(address) {
           timeout: 2000
         });
         if (!domainCheck.ok) {
-          throw new Error(`The lightning address provider (${domain}) appears to be unavailable.`);
+          throw new Error(`The lightning address provider (${domain}) is not responding (${domainCheck.status}). Please verify the address is correct or try again later.`);
         }
       } catch (error) {
         console.error(`Domain check failed for ${domain}:`, error);
@@ -740,7 +1230,23 @@ async function getInvoice(callbackUrl, maxRetries = 3) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Invoice fetch failed (${response.status}): ${errorText || '[Empty Error Response]'}`);
+        const domain = new URL(callbackUrl).hostname;
+        
+        // Provide user-friendly error messages for invoice fetch failures
+        let userMessage;
+        if (response.status === 500) {
+          userMessage = `The lightning server (${domain}) is experiencing technical difficulties while generating the invoice. Please try again later.`;
+        } else if (response.status === 404) {
+          userMessage = `Invoice endpoint not found on ${domain}. Please verify the lightning address is correct.`;
+        } else if (response.status >= 500) {
+          userMessage = `The lightning server (${domain}) is temporarily unavailable. Please try again later.`;
+        } else if (response.status >= 400) {
+          userMessage = `Invalid request to ${domain}. Please check your lightning address and amount.`;
+        } else {
+          userMessage = `Failed to connect to ${domain} (${response.status}). Please try again.`;
+        }
+        
+        throw new Error(userMessage);
       }
 
       const responseText = await response.text();
@@ -787,6 +1293,7 @@ async function getInvoice(callbackUrl, maxRetries = 3) {
  * - Authentication persistence
  * - Lightning address processing
  * - Invoice generation and handling
+ * - NWC payments and zap receipts
  * 
  * Components:
  * - nostrCore: Core Nostr functionality wrapper

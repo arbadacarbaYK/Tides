@@ -55,7 +55,19 @@ class ContactManager {
         ];
 
         console.log('Fetching all DM events...');
-        const dmEvents = await pool.list(RELAYS, dmFilters);
+        
+        // Ensure we have at least one connected relay before proceeding
+        const connectedRelays = relayPool.getConnectedRelays();
+        if (connectedRelays.length === 0) {
+          console.log('No connected relays available, attempting to connect...');
+          const connected = await relayPool.ensureConnection();
+          if (!connected) {
+            console.error('Failed to connect to any relays');
+            return Array.from(this.contacts.values());
+          }
+        }
+        
+        const dmEvents = await pool.list(relayPool.getConnectedRelays(), dmFilters);
         console.log(`Found ${dmEvents.length} total DM events`);
 
         // Group DMs by conversation partner
@@ -106,15 +118,15 @@ class ContactManager {
               try {
                 const individualMessages = await messageManager.fetchMessages(expectedPubkey);
                 if (individualMessages && individualMessages.length > 0) {
-                  // Find the most recent message
+            // Find the most recent message
                   const lastMessage = individualMessages.reduce((latest, msg) => {
-                    if (!latest || msg.created_at > latest.created_at) {
-                      return msg;
-                    }
-                    return latest;
-                  }, null);
-                  
-                  if (lastMessage) {
+              if (!latest || msg.created_at > latest.created_at) {
+                return msg;
+              }
+              return latest;
+            }, null);
+            
+            if (lastMessage) {
                     conversationMap.set(expectedPubkey, lastMessage.created_at);
                     console.log(`Individual fetch SUCCESS: Found ${individualMessages.length} messages for ${expectedPubkey.slice(0,8)}, latest: ${lastMessage.created_at}`);
                   }
@@ -135,7 +147,7 @@ class ContactManager {
         // Get current follow list to filter out unfollowed contacts
         let currentFollowList = [];
         try {
-          const followListEvents = await pool.list(RELAYS, [
+          const followListEvents = await pool.list(relayPool.getConnectedRelays(), [
             {
               kinds: [3],
               authors: [currentUser.pubkey],
@@ -152,23 +164,59 @@ class ContactManager {
           console.error('Error fetching follow list:', error);
         }
         
-        // Get current mute list (NIP-51) to filter out muted contacts
-        let mutedContacts = [];
+        // Get current mute list to filter out muted contacts
+        let currentMuteList = [];
         try {
-          const muteEvents = await pool.list(RELAYS, [
+          const muteEvents = await pool.list(relayPool.getConnectedRelays(), [
             {
-              kinds: [10000], // NIP-51 mute list
+              kinds: [10000],
               authors: [currentUser.pubkey],
-              limit: 1 // Only need the latest mute list
+              limit: 1
             }
           ]);
           
           if (muteEvents.length > 0) {
-            mutedContacts = muteEvents[0].tags
+            currentMuteList = muteEvents[0].tags
               .filter(tag => tag[0] === 'p')
               .map(tag => tag[1]);
           }
-          console.log(`Found ${mutedContacts.length} muted contacts`);
+          console.log(`Found ${currentMuteList.length} muted contacts`);
+          
+                  // Load blocked contacts from storage FIRST (before processing mute list)
+        try {
+          const blockedResult = await chrome.storage.local.get('blockedContacts');
+          if (blockedResult.blockedContacts && blockedResult.blockedContacts.length > 0) {
+            if (!window.blockedContacts) {
+              window.blockedContacts = new Set();
+            }
+            // Don't clear - ADD to existing blocked contacts
+            blockedResult.blockedContacts.forEach(pubkey => window.blockedContacts.add(pubkey));
+            console.log(`Loaded ${window.blockedContacts.size} blocked contacts from storage:`, Array.from(window.blockedContacts));
+          } else {
+            if (!window.blockedContacts) {
+              window.blockedContacts = new Set();
+            }
+          }
+        } catch (error) {
+          console.error('Error loading blocked contacts from storage:', error);
+          if (!window.blockedContacts) {
+            window.blockedContacts = new Set();
+          }
+        }
+        
+        // Now add muted contacts from relays to the existing blocked contacts
+        currentMuteList.forEach(pubkey => window.blockedContacts.add(pubkey));
+        console.log(`Added ${currentMuteList.length} muted contacts from relays. Total blocked: ${window.blockedContacts.size}`);
+        
+        // Persist blocked contacts to storage for persistence across reloads
+        try {
+          await chrome.storage.local.set({
+            blockedContacts: Array.from(window.blockedContacts)
+          });
+          console.log(`Persisted ${window.blockedContacts.size} blocked contacts to storage`);
+        } catch (error) {
+          console.error('Error persisting blocked contacts:', error);
+        }
         } catch (error) {
           console.error('Error fetching mute list:', error);
         }
@@ -180,10 +228,58 @@ class ContactManager {
         
         // Filter out muted contacts from the contacts Map entirely
         for (const [pubkey, contact] of this.contacts.entries()) {
-          if (mutedContacts.includes(pubkey)) {
+          if (currentMuteList.includes(pubkey)) {
             console.log(`Removing muted contact ${pubkey.slice(0,8)} from contacts`);
             this.contacts.delete(pubkey);
           }
+        }
+        
+        // Filter out blocked contacts from the contacts Map
+        if (window.blockedContacts) {
+          for (const [pubkey, contact] of this.contacts.entries()) {
+            if (window.blockedContacts.has(pubkey)) {
+              console.log(`Removing blocked contact ${pubkey.slice(0,8)} from contacts`);
+              this.contacts.delete(pubkey);
+            }
+          }
+        }
+        
+        // Also filter out locally unfollowed contacts from storage
+        try {
+          // First check if window.unfollowedContacts is already loaded
+          let unfollowedSet = new Set();
+          
+          if (window.unfollowedContacts) {
+            unfollowedSet = window.unfollowedContacts;
+            console.log(`Using window.unfollowedContacts with ${unfollowedSet.size} entries`);
+          } else {
+            // Fallback to loading from storage
+            const result = await chrome.storage.local.get('unfollowedContacts');
+            if (result.unfollowedContacts) {
+              unfollowedSet = new Set(result.unfollowedContacts);
+              console.log(`Loaded ${unfollowedSet.size} unfollowed contacts from storage`);
+            }
+          }
+          
+          // Filter out unfollowed contacts
+          for (const [pubkey, contact] of this.contacts.entries()) {
+            if (unfollowedSet.has(pubkey)) {
+              console.log(`Removing unfollowed contact ${pubkey.slice(0,8)} from contacts`);
+              this.contacts.delete(pubkey);
+            }
+          }
+          
+          // Also filter out blocked contacts that might have been added back
+          if (window.blockedContacts) {
+            for (const [pubkey, contact] of this.contacts.entries()) {
+              if (window.blockedContacts.has(pubkey)) {
+                console.log(`Removing blocked contact ${pubkey.slice(0,8)} from contacts (double-check)`);
+                this.contacts.delete(pubkey);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error loading unfollowed contacts:', error);
         }
         
         // Update lastMessageTimes for contacts who have conversations AND are still followed

@@ -14,6 +14,7 @@ class CredentialManager {
   async init() {
     try {
       const stored = await chrome.storage.sync.get('encryptionKey');
+      
       if (stored.encryptionKey) {
         // Convert stored array back to Uint8Array
         this.encryptionKey = new Uint8Array(stored.encryptionKey);
@@ -26,7 +27,7 @@ class CredentialManager {
         });
       }
     } catch (error) {
-      console.error('Failed to initialize encryption key:', error);
+      console.error('🔍 CredentialManager: Failed to initialize encryption key:', error);
       throw error;
     }
   }
@@ -110,13 +111,14 @@ class CredentialManager {
       
       // Try to parse as JSON if possible
       try {
-        return JSON.parse(decryptedStr);
-      } catch {
+        const parsed = JSON.parse(decryptedStr);
+        return parsed;
+      } catch (parseError) {
         return decryptedStr;
       }
     } catch (error) {
-      console.error('Decryption failed:', error);
-      throw error;
+      console.error('CredentialManager: Decryption failed:', error);
+      return null;
     }
   }
 
@@ -149,7 +151,10 @@ class CredentialManager {
       const { currentUser } = await chrome.storage.local.get('currentUser');
       if (!currentUser) return null;
       
-      return await this.decrypt(currentUser);
+      // Minimal, non-sensitive logging
+      const decrypted = await this.decrypt(currentUser);
+      console.log('🔍 CredentialManager: Loaded currentUser from storage');
+      return decrypted;
     } catch (error) {
       console.error('Failed to get stored credentials:', error);
       return null;

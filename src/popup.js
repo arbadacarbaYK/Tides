@@ -1,3 +1,9 @@
+// CRITICAL TEST: Check if popup.js is actually running
+window.popupJsLoaded = true;
+console.log('🚨 POPUP.JS GLOBAL FLAG SET:', window.popupJsLoaded);
+
+console.log('🚨 POPUP.JS LOADING STARTED!');
+
 import { auth } from './auth.js';
 import { fetchContacts, setContacts, contactManager, getContact } from './contact.js';
 import { pubkeyToNpub } from './shared.js';
@@ -10,9 +16,8 @@ import { shortenIdentifier } from './shared.js';
 import 'emoji-picker-element';
 // Giphy service is loaded via script tag as giphyService global
 import { RELAYS } from './shared.js';
-import qrcode from 'qrcode';
+// qrcode is loaded via script tag in popup.html
 import { nostrCore, pool, relayPool } from './shared.js';
-
 /**
  * Global state variables for managing UI interactions and message handling
  * @type {string|null} currentChatPubkey - Currently selected chat pubkey
@@ -30,6 +35,137 @@ let hasPlayedLoginSound = false;
 let lastMessageTimestamp = 0;
 let searchHistory = [];
 let currentGroupId = null; 
+let isModalOpen = false; // Prevent multiple modals from opening
+
+// CRITICAL TEST: Make a simple function available globally
+window.testPopupJs = () => {
+  console.log('🚨 TEST: popup.js function is accessible!');
+  return 'popup.js is working!';
+};
+console.log('🚨 TEST FUNCTION CREATED:', typeof window.testPopupJs);
+
+function showCreateGroupModal() {
+  console.log('🚀 showCreateGroupModal FUNCTION STARTED');
+  
+  // Prevent multiple modals from opening simultaneously
+  if (isModalOpen) {
+    console.log('🔒 Modal already open, ignoring duplicate call');
+    return;
+  }
+  
+  isModalOpen = true;
+  console.log('🔓 Opening create group modal');
+  
+  console.log('🚀 Creating modal element...');
+  const modal = document.createElement('div');
+  modal.className = 'create-group-modal';
+  
+  console.log('🚀 Modal element created:', modal);
+  console.log('🚀 Modal class:', modal.className);
+  
+  modal.innerHTML = `
+    <div class="create-group-modal-content">
+      <div class="create-group-header">
+        <img src="icons/default-group.png" alt="Group" class="profile-avatar">
+        <h3>Create New Group</h3>
+      </div>
+      <form id="create-group-form">
+        <div class="create-group-field">
+          <label for="group-name">Group Name</label>
+          <input type="text" id="group-name" required>
+        </div>
+        <div class="create-group-field">
+          <label for="group-about">Description</label>
+          <textarea id="group-about" rows="3"></textarea>
+        </div>
+        <div class="create-group-field">
+          <label for="group-picture">Picture URL (optional)</label>
+          <input type="url" id="group-picture">
+        </div>
+        <div class="create-group-buttons">
+          <button type="button" class="cancel-button">Cancel</button>
+          <button type="submit" class="submit-button">Create Group</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  
+  const form = modal.querySelector('#create-group-form');
+  const submitBtn = modal.querySelector('.submit-button');
+  const cancelBtn = modal.querySelector('.cancel-button');
+  
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating...';
+    
+    const name = modal.querySelector('#group-name').value;
+    const about = modal.querySelector('#group-about').value;
+    const picture = modal.querySelector('#group-picture').value;
+    
+    try {
+      await handleCreateGroup(name, about, picture);
+      modal.remove();
+      isModalOpen = false;
+      console.log('🔓 Modal closed after successful group creation, flag reset');
+    } catch (error) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Group';
+      // Don't reset flag on error - let user try again
+    }
+  };
+  
+  cancelBtn.onclick = () => {
+    modal.remove();
+    isModalOpen = false;
+    console.log('🔓 Modal closed, flag reset');
+  };
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+      isModalOpen = false;
+      console.log('🔓 Modal closed by background click, flag reset');
+    }
+  });
+}
+
+async function handleCreateGroup(name, about, picture) {
+  console.log('🚨 handleCreateGroup called with:', { name, about, picture });
+  
+  try {
+    console.log('🔍 About to call window.groupContactManager.createGroup...');
+    if (!window.groupContactManager || typeof window.groupContactManager.createGroup !== 'function') {
+      throw new Error('Group manager not ready');
+    }
+
+    const createGroupPromise = window.groupContactManager.createGroup(name, about, [], picture);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('createGroup call timed out after 10 seconds')), 10000));
+    const group = await Promise.race([createGroupPromise, timeoutPromise]);
+    console.log('✅ Group created successfully:', group);
+
+    // Close any open modals
+    document.querySelectorAll('.create-group-modal').forEach(modal => modal.remove());
+
+    // Simply refresh the contact list to show the new group
+    // This avoids complex DOM manipulation that could cause infinite loops
+    if (window.groupContactManager) {
+      const contacts = Array.from(contactManager.contacts.values());
+      await renderContactList(contacts);
+    }
+
+    showErrorMessage('Group created successfully', 'success');
+    return group;
+  } catch (error) {
+    console.error('Error creating group:', error);
+    showErrorMessage('Failed to create group: ' + error.message);
+    throw error;
+  }
+}
+
+
 
 function initializeGifButton() {
   const gifButton = document.getElementById('gifButton');
@@ -81,11 +217,11 @@ function initializeGifButton() {
           if (query) {
             const results = await giphyService.searchGifs(query);
             renderGifs(results, gifGrid);
-        } else {
+          } else {
             const trending = await giphyService.getTrendingGifs();
             renderGifs(trending, gifGrid);
           }
-      } catch (error) {
+        } catch (error) {
           showErrorMessage('GIF search failed');
         }
       }, 300);
@@ -147,16 +283,7 @@ async function initializeUI() {
   searchInput.addEventListener('input', (e) => {
     const searchTerm = e.target.value.toLowerCase().trim();
     clearSearchButton.style.display = searchTerm ? 'block' : 'none';
-    
-    const filteredContacts = Array.from(contactManager.contacts.values())
-      .filter(contact => {
-        if (!searchTerm) return true;
-        const displayName = (contact.displayName || '').toLowerCase();
-        const npub = (contact.npub || '').toLowerCase();
-        return displayName.includes(searchTerm) || npub.includes(searchTerm);
-      });
-      
-    renderContactList(filteredContacts);
+    renderContactList(Array.from(contactManager.contacts.values()), searchTerm);
   });
 
   // Add Enter key listener for login
@@ -168,11 +295,24 @@ async function initializeUI() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('🚨 DOM CONTENT LOADED!');
+  console.log('🚨 About to start initialization...');
+  console.log('🚨 Contact list element exists:', !!document.getElementById('contactList'));
+  
+  // Suppress network errors for missing images to reduce console spam
+  window.addEventListener('error', (e) => {
+    if (e.target && e.target.tagName === 'IMG' && e.target.src) {
+      // Silently handle broken image loads
+      e.preventDefault();
+      return false;
+    }
+  }, true);
+  
   await loadSearchHistory();
   initializeSearchInput();
   initializeUI();
   initializeGifButton();
-  initializeCreateGroupButton();
+  // Remove premature call - button doesn't exist yet
   
   const storedUser = await auth.getStoredCredentials();
   if (storedUser) {
@@ -289,13 +429,23 @@ async function loadUserData(user) {
     const contacts = await contactManager.init(user.pubkey);
     setContacts(contacts);
 
-    // Initialize groups
+    // Initialize groups - wait for groupContact.js to load
+    console.log('🔍 Waiting for groupContactManager to be available...');
+    let attempts = 0;
+    const maxAttempts = 50; // Wait up to 5 seconds
+    
+    while (!window.groupContactManager && attempts < maxAttempts) {
+      console.log(`🔍 Attempt ${attempts + 1}/${maxAttempts}: groupContactManager not ready yet...`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
     if (window.groupContactManager) {
-      console.log('Initializing group manager...');
+      console.log('✅ groupContactManager is now available!');
       await window.groupContactManager.init();
       console.log('Groups after init:', Array.from(window.groupContactManager.groups.values()));
     } else {
-      console.error('groupContactManager not available');
+      console.error('❌ groupContactManager still not available after waiting');
     }
 
     // Render both contacts and groups
@@ -427,6 +577,28 @@ function updateUIWithMetadata(metadata) {
               </div>
             ` : ''}
           </div>
+          <!-- NWC Wallet Connect Section -->
+          <div class="nwc-section">
+            <h4>Wallet Connect (NWC)</h4>
+            <div id="nwc-status">
+              <div class="nwc-disconnected">
+                <span>Not connected</span>
+              </div>
+            </div>
+            <div class="nwc-input-section" style="display: block !important;">
+              <label>NWC Connection String:</label>
+              <div class="input-group">
+                <input type="text" id="nwc-uri" placeholder="nostr+walletconnect://..." style="background: white !important; color: black !important; pointer-events: auto !important; user-select: text !important; -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important;" />
+                <small style="color: #666; margin-top: 4px; display: block;">
+                  Paste your NWC connection string from your wallet here
+                </small>
+              </div>
+            </div>
+            <div class="nwc-buttons">
+              <button id="nwc-connect" class="primary-button">Connect NWC</button>
+              <button id="nwc-disconnect" class="secondary-button" style="display: none;">Disconnect</button>
+            </div>
+          </div>
           <div class="modal-buttons">
             <button class="copy-button">Copy</button>
             <button class="close-button">Close</button>
@@ -462,18 +634,205 @@ function updateUIWithMetadata(metadata) {
         modal.remove();
       });
 
+      // Initialize NWC status
+      await initializeNWCStatus(modal);
+      
+      // Add NWC functionality - ensure elements exist before adding listeners
+      // Use requestAnimationFrame to ensure DOM is fully rendered
+      requestAnimationFrame(() => {
+        // Try multiple selectors to find the elements
+        const nwcConnectBtn = modal.querySelector('#nwc-connect');
+        const nwcDisconnectBtn = modal.querySelector('#nwc-disconnect');
+        const nwcInputSection = modal.querySelector('.nwc-input-section') || modal.querySelector('[class*="nwc-input"]');
+        const nwcUriInput = modal.querySelector('#nwc-uri') || modal.querySelector('input[placeholder*="nostr+walletconnect"]');
+        
+        console.log('NWC elements found:', {
+          nwcConnectBtn: !!nwcConnectBtn,
+          nwcDisconnectBtn: !!nwcDisconnectBtn,
+          nwcInputSection: !!nwcInputSection,
+          nwcUriInput: !!nwcUriInput
+        });
+        
+        console.log('NWC input element:', nwcUriInput);
+        console.log('NWC input section element:', nwcInputSection);
+        
+        // Force the input field to be editable
+        if (nwcUriInput) {
+          nwcUriInput.removeAttribute('readonly');
+          nwcUriInput.removeAttribute('disabled');
+          nwcUriInput.style.pointerEvents = 'auto';
+          nwcUriInput.style.userSelect = 'text';
+          nwcUriInput.style.webkitUserSelect = 'text';
+          nwcUriInput.style.mozUserSelect = 'text';
+          nwcUriInput.style.msUserSelect = 'text';
+          nwcUriInput.style.background = 'white !important';
+          nwcUriInput.style.color = 'black !important';
+          nwcUriInput.style.border = '1px solid #ccc';
+          console.log('NWC input field made editable');
+        } else {
+          console.error('NWC input field NOT FOUND!');
+          // Try to find it by looking at all inputs in the modal
+          const allInputs = modal.querySelectorAll('input');
+          console.log('All inputs in modal:', allInputs);
+          console.log('Modal HTML structure:', modal.innerHTML);
+          
+          // Try alternative selectors
+          const alternativeInput = modal.querySelector('input[type="text"]') || 
+                                  modal.querySelector('input[placeholder*="nostr"]') ||
+                                  modal.querySelector('input[placeholder*="wallet"]');
+          
+          if (alternativeInput) {
+            console.log('Found alternative input:', alternativeInput);
+            alternativeInput.removeAttribute('readonly');
+            alternativeInput.removeAttribute('disabled');
+            alternativeInput.style.pointerEvents = 'auto';
+            alternativeInput.style.userSelect = 'text';
+            alternativeInput.style.background = 'white !important';
+            alternativeInput.style.color = 'black !important';
+            alternativeInput.style.border = '1px solid #ccc';
+            console.log('Alternative input field made editable');
+          }
+          
+          // If still not found, try a different approach - wait a bit longer
+          setTimeout(() => {
+            console.log('Trying delayed NWC element search...');
+            const delayedInput = modal.querySelector('#nwc-uri');
+            if (delayedInput) {
+              console.log('Found NWC input with delay:', delayedInput);
+              delayedInput.removeAttribute('readonly');
+              delayedInput.removeAttribute('disabled');
+              delayedInput.style.pointerEvents = 'auto';
+              delayedInput.style.userSelect = 'text';
+              delayedInput.style.background = 'white !important';
+              delayedInput.style.color = 'black !important';
+              delayedInput.style.border = '1px solid #ccc';
+              console.log('Delayed NWC input field made editable');
+            } else {
+              console.error('NWC input still not found after delay');
+            }
+          }, 100);
+        }
+        
+        // Add NWC connect handler
+        nwcConnectBtn.addEventListener('click', async () => {
+          console.log('NWC Connect button clicked');
+          
+          if (!nwcUriInput || !nwcUriInput.value.trim()) {
+            showErrorMessage('Please enter an NWC connection string first');
+            return;
+          }
+          
+          const uri = nwcUriInput.value.trim();
+          
+          try {
+            // Show connecting state
+            nwcConnectBtn.textContent = 'Connecting...';
+            nwcConnectBtn.disabled = true;
+            
+            // Send connection request to background
+            const response = await chrome.runtime.sendMessage({
+              type: 'NWC_CONNECT',
+              data: { uri }
+            });
+            
+            if (response.error) {
+              throw new Error(response.error);
+            }
+            
+            // Success - update status
+            nwcConnectBtn.textContent = 'Connected';
+            nwcConnectBtn.className = 'success-button';
+            nwcConnectBtn.disabled = true;
+            
+            // Update status display with connection details
+            const statusDiv = modal.querySelector('#nwc-status');
+            if (statusDiv) {
+              statusDiv.innerHTML = `
+                <div class="nwc-connected">
+                  <span>Connected to ${response.walletName || 'NWC Wallet'}</span>
+                  <br><small>You can now use "Pay with NWC" in zap modals!</small>
+                </div>
+              `;
+            }
+            
+            // Show disconnect button
+            if (nwcDisconnectBtn) {
+              nwcDisconnectBtn.style.display = 'inline-block';
+            }
+            
+          } catch (error) {
+            console.error('NWC connection failed:', error);
+            
+            // Show error state
+            nwcConnectBtn.textContent = 'Error - Retry';
+            nwcConnectBtn.className = 'error-button';
+            nwcConnectBtn.disabled = false;
+            
+            // Update status display
+            const statusDiv = modal.querySelector('#nwc-status');
+            if (statusDiv) {
+              statusDiv.innerHTML = `
+                <div class="nwc-error">
+                  <span>Connection failed: ${error.message}</span>
+                </div>
+              `;
+            }
+          }
+        });
+        
+        // Add NWC disconnect handler
+        nwcDisconnectBtn.addEventListener('click', async () => {
+          try {
+            const response = await new Promise(resolve => {
+              chrome.runtime.sendMessage({ type: 'NWC_DISCONNECT' }, resolve);
+            });
+            if (response.ok) {
+              showErrorMessage('NWC disconnected successfully', 'success');
+              await initializeNWCStatus(modal);
+            } else {
+              showErrorMessage(response.error || 'Failed to disconnect');
+            }
+          } catch (error) {
+            showErrorMessage('Failed to disconnect NWC');
+          }
+      });
+
       modal.addEventListener('click', (e) => {
         if (e.target === modal) {
           modal.remove();
         }
+        });
       });
     });
   }
 }
 
-async function renderContactList(contacts) {
+async function renderContactList(contacts, filterTerm = '') {
+  console.log('🚨 renderContactList CALLED with contacts:', contacts?.length || 0);
+  const normalizedFilter = (filterTerm || '').toLowerCase().trim();
+  const matchesFilter = (name = '', npub = '', about = '') => {
+    if (!normalizedFilter) return true;
+    return (
+      (name || '').toLowerCase().includes(normalizedFilter) ||
+      (npub || '').toLowerCase().includes(normalizedFilter) ||
+      (about || '').toLowerCase().includes(normalizedFilter)
+    );
+  };
+  
+  // Prevent multiple simultaneous calls to avoid infinite loops
+  if (window.isRenderingContactList) {
+    console.log('🔒 renderContactList already in progress, skipping duplicate call');
+    return;
+  }
+  
+  window.isRenderingContactList = true;
+  console.log('🔓 Starting renderContactList...');
+  
   const contactList = document.getElementById('contactList');
-  if (!contactList) return;
+  if (!contactList) {
+    window.isRenderingContactList = false;
+    return;
+  }
   
     contactList.innerHTML = '';
   
@@ -513,13 +872,42 @@ async function renderContactList(contacts) {
   groupContent.id = 'groupsContent';
 
   // Add create group button
+  // First, remove any existing create group buttons to prevent duplicates
+  const existingButtons = groupContent.querySelectorAll('.create-group-button');
+  existingButtons.forEach(btn => btn.remove());
+  
+  console.log('🔧 Creating new create group button...');
+  
   const createGroupButton = document.createElement('button');
   createGroupButton.className = 'create-group-button';
   createGroupButton.innerHTML = '<span>Create New Group</span>';
+  
+  console.log('🔧 Button created:', createGroupButton);
+  console.log('🔧 Button class:', createGroupButton.className);
+  console.log('🔧 Button HTML:', createGroupButton.innerHTML);
+  
+  // Add click event listener directly to avoid initialization complexity
+  console.log('🔧 Adding click event listener...');
+  
+  createGroupButton.addEventListener('click', (event) => {
+    console.log('🔍 Create group button clicked!');
+    console.log('🔍 Event object:', event);
+    console.log('🔍 Button element:', event.target);
+    console.log('🔍 showCreateGroupModal function exists:', typeof showCreateGroupModal);
+    
+    try {
+      console.log('🔍 About to call showCreateGroupModal...');
+      showCreateGroupModal();
+      console.log('🔍 showCreateGroupModal called successfully');
+    } catch (error) {
+      console.error('❌ Error calling showCreateGroupModal:', error);
+      console.error('❌ Error stack:', error.stack);
+    }
+  });
+  
+  console.log('🔧 Event listener added, appending button to DOM...');
   groupContent.appendChild(createGroupButton);
-
-  // Initialize the create group button right after creating it
-  initializeCreateGroupButton();
+  console.log('🔧 Button appended to DOM. Button in DOM:', document.querySelector('.create-group-button'));
 
   // Add user's groups
   if (window.groupContactManager) {
@@ -528,7 +916,9 @@ async function renderContactList(contacts) {
         // Double check that the group is not in leftGroups
         const isLeft = window.groupContactManager.leftGroups.has(group.id);
         console.log('Group:', group.id, 'isLeft:', isLeft);
-        return !isLeft;
+        if (isLeft) return false;
+        // Apply search filter on group name/about
+        return matchesFilter(group.name || '', '', group.about || '');
       })
       .sort((a, b) => {
         const timeA = a.lastMessage?.created_at || a.created_at;
@@ -568,13 +958,117 @@ async function renderContactList(contacts) {
   contactList.appendChild(groupSection);
 
   if (contacts && contacts.length > 0) {
+    // Get ALL contacts with DM history, regardless of follow status
+    const allContactsWithMessages = new Map();
+    
+    // Add followed contacts
+    contacts.forEach(contact => {
+      allContactsWithMessages.set(contact.pubkey, contact);
+    });
+    
+    // Add contacts with DM history that might not be followed
+    if (contactManager.lastMessageTimes) {
+      for (const [pubkey, lastMessageTime] of contactManager.lastMessageTimes.entries()) {
+        // Skip if already added as a followed contact
+        if (!allContactsWithMessages.has(pubkey)) {
+          // Skip blocked contacts BEFORE adding them
+          if (window.blockedContacts && window.blockedContacts.has(pubkey)) {
+            console.log(`Skipping blocked contact ${pubkey.slice(0,8)} from DM history`);
+            continue;
+          }
+          
+          // Skip unfollowed contacts BEFORE adding them
+          if (window.unfollowedContacts && window.unfollowedContacts.has(pubkey)) {
+            console.log(`Skipping unfollowed contact ${pubkey.slice(0,8)} from DM history`);
+            continue;
+          }
+          
+          // Create a temporary contact object for non-followed contacts with messages
+          // Try to get metadata if available
+          let displayName = `Unknown (${pubkey.slice(0, 8)}...)`;
+          let avatarUrl = 'icons/default-avatar.png';
+          let about = '';
+          
+          // Check if we have metadata for this contact
+          if (window.contactMetadata && window.contactMetadata[pubkey]) {
+            const metadata = window.contactMetadata[pubkey];
+            displayName = metadata.name || metadata.display_name || displayName;
+            avatarUrl = metadata.picture || avatarUrl;
+            about = metadata.about || about;
+          }
+          
+          const tempContact = {
+            pubkey: pubkey,
+            displayName: displayName,
+            avatarUrl: avatarUrl,
+            about: about,
+            isTemporary: true, // Mark as non-followed contact
+            lastMessageTime: lastMessageTime
+          };
+          // Apply filter to temporary contacts as well
+          if (matchesFilter(tempContact.displayName, '', tempContact.about)) {
+            allContactsWithMessages.set(pubkey, tempContact);
+          }
+        }
+      }
+    }
+    
+    // DOUBLE-CHECK: Remove any blocked contacts that might have slipped through
+    if (window.blockedContacts) {
+      for (const [pubkey, contact] of allContactsWithMessages.entries()) {
+        if (window.blockedContacts.has(pubkey)) {
+          console.log(`Removing blocked contact ${pubkey.slice(0,8)} that slipped through`);
+          allContactsWithMessages.delete(pubkey);
+        }
+      }
+    }
+    
+    // DOUBLE-CHECK: Remove any unfollowed contacts that might have slipped through
+    if (window.unfollowedContacts) {
+      for (const [pubkey, contact] of allContactsWithMessages.entries()) {
+        if (window.unfollowedContacts.has(pubkey)) {
+          console.log(`Removing unfollowed contact ${pubkey.slice(0,8)} that slipped through`);
+          allContactsWithMessages.delete(pubkey);
+        }
+      }
+    }
+    
+    // Debug logging for blocked contacts
+    console.log('Blocked contacts before filtering:', window.blockedContacts ? Array.from(window.blockedContacts) : 'undefined');
+    console.log('Unfollowed contacts before filtering:', window.unfollowedContacts ? Array.from(window.unfollowedContacts) : 'undefined');
+    
+    // Filter out unfollowed contacts and blocked contacts
+    const filteredContacts = Array.from(allContactsWithMessages.values()).filter(contact => {
+      // Filter out unfollowed contacts
+      if (window.unfollowedContacts && window.unfollowedContacts.has(contact.pubkey)) {
+        console.log(`Filtering out unfollowed contact: ${contact.pubkey.slice(0,8)}`);
+        return false;
+      }
+      
+      // Filter out blocked contacts (muted contacts)
+      if (window.blockedContacts && window.blockedContacts.has(contact.pubkey)) {
+        console.log(`Filtering out blocked contact: ${contact.pubkey.slice(0,8)}`);
+        return false;
+      }
+      // Resolve best-known display name for filtering
+      let nameForFilter = contact.displayName;
+      if ((!nameForFilter || nameForFilter.toLowerCase().startsWith('unknown')) && window.contactMetadata && contact.pubkey) {
+        const md = window.contactMetadata[contact.pubkey];
+        if (md) nameForFilter = md.name || md.display_name || nameForFilter;
+      }
+      // Apply search filter
+      return matchesFilter(nameForFilter, contact.npub || '', contact.about || '');
+    });
+    
+    console.log(`Filtered ${allContactsWithMessages.size} contacts down to ${filteredContacts.length} contacts`);
+    
     // Use the already-calculated lastMessageTime from contactManager instead of re-fetching
-    const contactsWithMessages = contacts.map(contact => {
+    const contactsWithMessages = filteredContacts.map(contact => {
       const lastMessageTime = contactManager.lastMessageTimes.get(contact.pubkey);
         return {
           ...contact,
         lastMessageTime: lastMessageTime || null
-      };
+        };
     });
 
     // Split contacts into recent and other based on message existence
@@ -645,29 +1139,19 @@ async function renderContactList(contacts) {
       if (content.style.display === 'none') {
         content.style.display = 'block';
         icon.textContent = '▼';
-      } else {
+  } else {
         content.style.display = 'none';
         icon.textContent = '▶';
       }
     });
   });
+  
+  // Reset the rendering flag
+  window.isRenderingContactList = false;
+  console.log('🔓 renderContactList completed, flag reset');
 }
 
-// Add search functionality
-document.getElementById('searchInput').addEventListener('input', function(e) {
-  const searchTerm = e.target.value.toLowerCase();
-  const contacts = Array.from(contactManager.contacts.values());
-  
-  if (searchTerm) {
-    const filteredContacts = contacts.filter(contact => 
-      contact.displayName.toLowerCase().includes(searchTerm) ||
-      contact.npub.toLowerCase().includes(searchTerm)
-    );
-    renderContactList(filteredContacts);
-  } else {
-    renderContactList(contacts);
-  }
-});
+// Remove duplicate plain filter; initializeUI wires a richer search that filters all sections
 
 function createContactElement(contact) {
   const element = document.createElement('div');
@@ -678,6 +1162,7 @@ function createContactElement(contact) {
   img.className = contact.isGroup ? 'group-avatar' : 'contact-avatar';
   img.src = contact.avatarUrl || '/icons/default-avatar.png';
   img.onerror = () => {
+    // Silently handle broken images without console spam
     if (contact.isGroup) {
       // Create text-based avatar for groups
       img.style.display = 'flex';
@@ -697,7 +1182,15 @@ function createContactElement(contact) {
   
   const nameSpan = document.createElement('span');
   nameSpan.className = contact.isGroup ? 'group-name' : 'contact-name';
-  nameSpan.textContent = contact.displayName || shortenIdentifier(contact.pubkey || contact.id);
+  // Prefer known metadata name if available and not empty
+  let resolvedName = contact.displayName;
+  if (!resolvedName && window.contactMetadata && (contact.pubkey || contact.id)) {
+    const md = window.contactMetadata[contact.pubkey || contact.id];
+    if (md) {
+      resolvedName = md.name || md.display_name || resolvedName;
+    }
+  }
+  nameSpan.textContent = resolvedName || shortenIdentifier(contact.pubkey || contact.id);
   contactInfo.appendChild(nameSpan);
 
   if (contact.isGroup) {
@@ -806,6 +1299,7 @@ function createContactElement(contact) {
             }
             break;
           case 'leave':
+            console.log('🚨 LEAVE GROUP clicked for:', contact);
             await showLeaveGroupModal(contact);
             break;
           case 'profile':
@@ -1299,7 +1793,8 @@ async function renderMessageContent(message, bubbleElement) {
         let messageHtml = '';
         
         // Add text before media if exists and it's not a media URL
-        const textBefore = parts[0].trim();
+        const textBefore = (parts[0] || '').trim()
+          .replace(/^\s*less\s*secure\s*(?:dm|group)\s*with\s*(?:gif|jpe?g|png|webp|image|images|media|picture|photo)\s*[:.!-]?\s*$/i, '');
         if (textBefore && !textBefore.match(/https?:\/\/(media[0-9]*\.)?/)) {
           messageHtml += `<div class="message-text">${linkifyText(textBefore)}</div>`;
         }
@@ -1307,16 +1802,22 @@ async function renderMessageContent(message, bubbleElement) {
         // Add the media
         messageHtml += `
           <div class="media-container">
-            <img src="${cleanUrl}" class="message-media" loading="lazy" alt="Media content" onerror="this.style.display='none'">
+            <img src="${cleanUrl}" class="message-media" loading="lazy" alt="Media content">
           </div>`;
         
         // Add text after media if exists and it's not a media URL
-        const remainingText = parts.slice(1).join(url).trim();
+        const remainingText = parts.slice(1).join(url).trim()
+          .replace(/^\s*less\s*secure\s*(?:dm|group)\s*with\s*(?:gif|jpe?g|png|webp|image|images|media|picture|photo)\s*[:.!-]?\s*$/i, '');
         if (remainingText && !remainingText.match(/https?:\/\/(media[0-9]*\.)?/)) {
           messageHtml += `<div class="message-text">${linkifyText(remainingText)}</div>`;
         }
         
         bubbleElement.innerHTML = messageHtml;
+        // Attach CSP-safe error handlers for media images
+        const mediaImgs = bubbleElement.querySelectorAll('img.message-media');
+        mediaImgs.forEach(img => {
+          img.addEventListener('error', () => { img.style.display = 'none'; });
+        });
 
         // Add zap container for received messages
         if (message.pubkey !== currentUser?.pubkey) {
@@ -1345,8 +1846,9 @@ async function renderMessageContent(message, bubbleElement) {
     }
   }
 
-  // Regular text message
-  bubbleElement.innerHTML = `<div class="message-text">${linkifyText(content)}</div>`;
+  // Regular text message (strip boilerplate caption if present)
+  const sanitized = (content || '').replace(/^\s*less\s*secure\s*(?:dm|group)\s*with\s*(?:gif|jpe?g|png|webp|image|images|media|picture|photo)\s*[:.!-]?\s*$/i, '');
+  bubbleElement.innerHTML = `<div class="message-text">${linkifyText(sanitized)}</div>`;
 
   // Add zap container for received messages
   if (message.pubkey !== currentUser?.pubkey) {
@@ -1375,7 +1877,7 @@ async function renderMessageContent(message, bubbleElement) {
 function linkifyText(text) {
   return text
     .replace(/\n/g, '<br>')
-    .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|[a-zA-Z0-9][a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g, (url) => {
+    .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g, (url) => {
       const fullUrl = url.startsWith('http') ? url : `https://${url}`;
       return `<a href="${fullUrl}" target="_blank" rel="noopener">${url}</a>`;
     });
@@ -1643,11 +2145,18 @@ async function showZapModal(message, metadata, zapContainer) {
     <div class="modal-content zap-modal-content">
       <h3>Send Zap</h3>
       <div class="zap-input-container">
+        <label for="zapAmount">Amount (sats):</label>
         <input type="number" id="zapAmount" min="1" value="100" />
       </div>
+      <div class="zap-message-container" style="margin: 15px 0;">
+        <label for="zapMessage">Message (optional):</label>
+        <input type="text" id="zapMessage" placeholder="Add a personal message..." maxlength="255" />
+      </div>
       <pre id="zapError" class="error-message" style="display: none; margin: 10px 0; padding: 10px; background: rgba(255,0,0,0.1); border-radius: 4px; white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;"></pre>
-      <div class="button-container">
-        <button id="sendZapButton" class="primary-button">Send Zap</button>
+      <div class="button-container" style="margin-top: 20px;">
+        <button id="sendZapButton" class="primary-button">Show QR</button>
+        <div style="margin: 10px 0;"></div>
+        <button id="sendZapNWC" class="secondary-button">Pay with NWC</button>
       </div>
     </div>
   `;
@@ -1655,6 +2164,7 @@ async function showZapModal(message, metadata, zapContainer) {
   document.body.appendChild(modal);
 
   const sendButton = modal.querySelector('#sendZapButton');
+  const sendNwcButton = modal.querySelector('#sendZapNWC');
   const amountInput = modal.querySelector('#zapAmount');
   const errorDiv = modal.querySelector('#zapError');
 
@@ -1666,6 +2176,9 @@ async function showZapModal(message, metadata, zapContainer) {
         sendButton.disabled = true;
         sendButton.textContent = 'Processing...';
 
+        const messageInput = modal.querySelector('#zapMessage');
+        const customMessage = messageInput.value.trim();
+
         const response = await chrome.runtime.sendMessage({
           type: 'GET_ZAP_INVOICE',
           data: {
@@ -1675,7 +2188,7 @@ async function showZapModal(message, metadata, zapContainer) {
               kind: 9734,
               pubkey: (await auth.getCurrentUser()).pubkey,
               created_at: Math.floor(Date.now() / 1000),
-              content: message.type === 'group' ? "Zapped a group message" : "Zapped a DM",
+              content: customMessage || (message.type === 'group' ? "Zapped a group message" : "Zapped a DM"),
               tags: [
                 ['p', message.pubkey],
                 ['e', message.id],
@@ -1694,7 +2207,20 @@ async function showZapModal(message, metadata, zapContainer) {
           throw new Error(response.error);
         }
 
-        await showQRModal(response.invoice);
+        await showQRModal(response.invoice, {
+          kind: 9734,
+          pubkey: (await auth.getCurrentUser()).pubkey,
+          created_at: Math.floor(Date.now() / 1000),
+          content: customMessage || (message.type === 'group' ? "Zapped a group message" : "Zapped a DM"),
+          tags: [
+            ['p', message.pubkey],
+            ['e', message.id],
+            ['amount', amount.toString()],
+            ['relays', ...RELAYS],
+            // Add group context if it's a group message
+            ...(message.type === 'group' && message.groupId ? [['e', message.groupId, '', 'root']] : [])
+          ]
+        });
         modal.remove();
         
         // Show success message
@@ -1704,10 +2230,123 @@ async function showZapModal(message, metadata, zapContainer) {
         errorDiv.textContent = `Error Details:\n${error.message}`;
         errorDiv.style.display = 'block';
         sendButton.disabled = false;
-        sendButton.textContent = 'Send';
+        sendButton.textContent = 'Show QR';
       }
     }
   });
+
+  // NWC payment path - HARMONIZED with QR modal button
+  try {
+    const { nwcConfig } = await chrome.storage.local.get('nwcConfig');
+    if (!nwcConfig && sendNwcButton) {
+      sendNwcButton.style.display = 'none';
+    }
+    if (nwcConfig && sendNwcButton) {
+      sendNwcButton.addEventListener('click', async () => {
+        const amount = parseInt(amountInput.value);
+        if (!amount || amount <= 0) {
+          showErrorMessage('Enter a valid amount');
+          return;
+        }
+        try {
+          errorDiv.style.display = 'none';
+          sendNwcButton.disabled = true;
+          sendNwcButton.textContent = 'Processing...';
+
+          const lightningAddress = metadata.lud16 || metadata?.lightning;
+          if (!lightningAddress) {
+            showErrorMessage('No lightning address available for this user');
+            return;
+          }
+
+          const messageInput = modal.querySelector('#zapMessage');
+          const customMessage = messageInput.value.trim();
+          
+          const user = await auth.getCurrentUser();
+          const zapRequest = {
+            kind: 9734,
+            pubkey: user.pubkey,
+            created_at: Math.floor(Date.now() / 1000),
+            content: customMessage || (message.type === 'group' ? 'Zapped a group message' : 'Zapped a DM'),
+            tags: [
+              ['p', message.pubkey],
+              ['e', message.id],
+              ['amount', amount.toString()],
+              ['relays', ...RELAYS],
+              ...(message.type === 'group' && message.groupId ? [['e', message.groupId, '', 'root']] : [])
+            ]
+          };
+
+          // HARMONIZED: Use the same flow as QR modal button - direct NWC zap
+          // Get invoice first, then pay via NWC (same flow as QR modal)
+          const invoiceResponse = await chrome.runtime.sendMessage({
+            type: 'GET_ZAP_INVOICE',
+            data: {
+              lightningAddress,
+              amount,
+              zapRequest
+            }
+          });
+
+          if (invoiceResponse.error) {
+            throw new Error(invoiceResponse.error);
+          }
+
+          // Now pay the invoice via NWC
+          const zapResult = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ 
+              type: 'PAY_INVOICE_VIA_NWC', 
+              data: { 
+                invoice: invoiceResponse.invoice,
+                zapRequest: zapRequest,
+                relays: zapRequest.tags.find(tag => tag[0] === 'relays')?.slice(1) || [],
+                amount: amount.toString(),
+                message: customMessage || (message.type === 'group' ? 'Zapped a group message' : 'Zapped a DM')
+              } 
+            }, resolve);
+          });
+
+          // FIXED: Check for actual payment success before showing success
+          if (zapResult?.error) {
+            throw new Error(zapResult.error);
+          }
+          
+          // FIXED: Check if the payment actually succeeded
+          if (!zapResult?.ok && !zapResult?.result?.success) {
+            throw new Error('Payment failed - no success confirmation received');
+          }
+          
+          // SUCCESS! Show visual feedback then close modal (same as QR modal)
+          sendNwcButton.textContent = '✅ Zap Sent!';
+          sendNwcButton.style.background = '#4CAF50';
+          sendNwcButton.style.color = 'white';
+          
+          // Add success animation
+          sendNwcButton.style.transform = 'scale(1.1)';
+          sendNwcButton.style.transition = 'all 0.3s ease';
+          
+          setTimeout(() => {
+            modal.remove();
+            showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
+          }, 1500);
+          
+        } catch (e) {
+          console.error('NWC payment failed:', e);
+          showErrorMessage(e.message || 'NWC payment failed');
+          // Error visual state
+          sendNwcButton.disabled = false;
+          sendNwcButton.textContent = '❌ Not successful - Retry';
+          sendNwcButton.classList.remove('success-button');
+          sendNwcButton.classList.add('error-button');
+          sendNwcButton.style.background = '#d32f2f';
+          sendNwcButton.style.color = '#fff';
+          sendNwcButton.style.transform = '';
+        }
+      });
+    }
+  } catch (e) {
+    // ignore wiring issues
+  }
 
   modal.addEventListener('click', (e) => {
     if (e.target === modal) {
@@ -1723,7 +2362,7 @@ async function handleZap(message, metadata, amount, zapContainer) {
       kind: 9734,
       pubkey: currentUser.pubkey,
       created_at: Math.floor(Date.now() / 1000),
-      content: "Zapped a DM",
+      content: message.content || "Zapped a DM", // Use actual message content if available
       tags: [
         ['p', message.pubkey],
         ['e', message.id],
@@ -1733,7 +2372,7 @@ async function handleZap(message, metadata, amount, zapContainer) {
     };
 
     const invoice = await createZapInvoice(metadata, amount, zapRequest);
-    await showQRModal(invoice);
+    await showQRModal(invoice, zapRequest);
 
   } catch (error) {
     console.error('Zap failed:', error);
@@ -1775,7 +2414,7 @@ async function createZapInvoice(metadata, amount, zapRequest) {
   }
 }
 
-async function showQRModal(invoice) {
+async function showQRModal(invoice, zapRequest = null) {
   const modal = document.createElement('div');
   modal.className = 'qr-modal';
   
@@ -1783,9 +2422,11 @@ async function showQRModal(invoice) {
     <div class="qr-modal-content">
       <div class="qr-container">
         <div id="qrcode-container"></div>
+
         <div class="invoice-text">${invoice}</div>
         <div class="modal-buttons">
           <button class="copy-button">Copy</button>
+          <button class="nwc-pay-button">Pay via NWC</button>
           <button class="close-button">Close</button>
         </div>
       </div>
@@ -1806,8 +2447,17 @@ async function showQRModal(invoice) {
   const qrContainer = modal.querySelector('#qrcode-container');
   qrContainer.innerHTML = qr.createImgTag(4);
   
+
+  
   const copyButton = modal.querySelector('.copy-button');
+  const nwcPayButton = modal.querySelector('.nwc-pay-button');
   const closeButton = modal.querySelector('.close-button');
+  
+  // Check if NWC is connected AND we have zap request data
+  const nwcStatus = await chrome.storage.local.get('nwcConfig');
+  if (!nwcStatus.nwcConfig || !zapRequest) {
+    nwcPayButton.style.display = 'none';
+  }
   
   copyButton.addEventListener('click', async () => {
     try {
@@ -1822,6 +2472,96 @@ async function showQRModal(invoice) {
     } catch (error) {
       console.error('Failed to copy invoice:', error);
       showErrorMessage('Failed to copy invoice');
+    }
+  });
+  
+  nwcPayButton.addEventListener('click', async () => {
+    try {
+      nwcPayButton.textContent = 'Paying...';
+      nwcPayButton.disabled = true;
+      
+      // Check if we have zap request data for receipt creation
+      if (!zapRequest) {
+        console.warn('No zap request available, payment will work but no receipt will be created');
+        // If no zap request, just pay without receipt data
+        const response = await chrome.runtime.sendMessage({
+          type: 'PAY_INVOICE_VIA_NWC',
+          data: { 
+            invoice
+          }
+        });
+        
+        if (response.error) {
+          throw new Error(response.error);
+        }
+        
+        // FIXED: Check if the payment actually succeeded
+        if (!response?.ok && !response?.result?.success) {
+          throw new Error('Payment failed - no success confirmation received');
+        }
+        
+        // Success! Show visual feedback then close modal
+        nwcPayButton.textContent = '✅ Zap Sent!';
+        nwcPayButton.style.background = '#4CAF50';
+        nwcPayButton.style.color = 'white';
+        
+        // Add success animation
+        nwcPayButton.style.transform = 'scale(1.1)';
+        nwcPayButton.style.transition = 'all 0.3s ease';
+        
+        setTimeout(() => {
+          modal.remove();
+          showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
+        }, 1500);
+        return;
+      }
+      
+      // HARMONIZED: Both buttons now use the same underlying payment function
+      // Since we have the invoice, we can pay it directly via NWC
+      const response = await chrome.runtime.sendMessage({
+        type: 'PAY_INVOICE_VIA_NWC',
+        data: { 
+          invoice,
+          zapRequest: zapRequest,
+          relays: zapRequest.tags.find(tag => tag[0] === 'relays')?.slice(1) || [],
+          amount: zapRequest.tags.find(tag => tag[0] === 'amount')?.[1] || '1000',
+          message: zapRequest.content || 'Zapped via QR'
+        }
+      });
+      
+      if (response.error) {
+        throw new Error(response.error);
+      }
+      
+      // FIXED: Check if the payment actually succeeded
+      if (!response?.ok && !response?.result?.success) {
+        throw new Error('Payment failed - no success confirmation received');
+      }
+      
+      // Success! Show visual feedback then close modal
+      nwcPayButton.textContent = '✅ Zap Sent!';
+      nwcPayButton.style.background = '#4CAF50';
+      nwcPayButton.style.color = 'white';
+      
+      // Add success animation
+      nwcPayButton.style.transform = 'scale(1.1)';
+      nwcPayButton.style.transition = 'all 0.3s ease';
+      
+      setTimeout(() => {
+        modal.remove();
+        showErrorMessage('Zap sent successfully via NWC! 🎉', 'success');
+      }, 1500);
+      
+    } catch (error) {
+      console.error('NWC payment failed:', error);
+      showErrorMessage(`NWC payment failed: ${error.message}`);
+      // Error visual state
+      nwcPayButton.textContent = '❌ Not successful - Retry';
+      nwcPayButton.disabled = false;
+      nwcPayButton.classList.remove('success-button');
+      nwcPayButton.classList.add('error-button');
+      nwcPayButton.style.background = '#d32f2f';
+      nwcPayButton.style.color = '#fff';
     }
   });
   
@@ -2069,43 +2809,41 @@ async function unfollowContact(pubkey) {
     const isFollowedContact = contact && !contact.isTemporary;
 
     if (isFollowedContact) {
-      // For followed contacts: Update follow list (kind 3)
-      console.log(`Unfollowing followed contact: ${pubkey.slice(0,8)}`);
+      console.log(`Unfollowing followed contact: ${pubkey}`);
       
-      // Get current follow list (kind 3)
-      const followListEvents = await pool.list(RELAYS, [
+      // Get current follow list
+      const followListEvents = await pool.list(relayPool.getConnectedRelays(), [
         {
           kinds: [3],
           authors: [currentUser.pubkey],
           limit: 1
         }
       ]);
-
+      
       let currentFollowList = [];
-      let existingEvent = null;
-
+      let originalFollowEvent = null;
+      
       if (followListEvents.length > 0) {
-        existingEvent = followListEvents[0];
-        // Extract pubkeys from p tags
-        currentFollowList = existingEvent.tags
+        originalFollowEvent = followListEvents[0];
+        currentFollowList = originalFollowEvent.tags
           .filter(tag => tag[0] === 'p')
           .map(tag => tag[1]);
       }
-
-      // Remove the unfollowed pubkey
-      const updatedFollowList = currentFollowList.filter(p => p !== pubkey);
-
-      // Create new follow list event
-      const updatedTags = updatedFollowList.map(p => ['p', p]);
       
+      // Remove the contact from the follow list
+      const updatedFollowList = currentFollowList
+        .filter(p => p !== pubkey)
+        .map(p => ['p', p]);
+      
+      // Create new follow event
       const followEvent = {
         kind: 3,
         pubkey: currentUser.pubkey,
         created_at: Math.floor(Date.now() / 1000),
-        tags: updatedTags,
-        content: existingEvent?.content || '',
+        tags: updatedFollowList,
+        content: originalFollowEvent?.content || ''
       };
-
+      
       // Sign and publish the updated follow list
       let signedEvent;
       if (currentUser.type === 'NSEC' && currentUser.privkey) {
@@ -2133,10 +2871,10 @@ async function unfollowContact(pubkey) {
       
     } else {
       // For non-contacts (temporary): Update mute list (NIP-51)
-      console.log(`Muting non-contact: ${pubkey.slice(0,8)}`);
+      console.log(`Muting non-contact: ${pubkey}`);
       
       // Get current mute list
-      const muteListEvents = await pool.list(RELAYS, [
+      const muteListEvents = await pool.list(relayPool.getConnectedRelays(), [
         {
           kinds: [10000], // NIP-51 mute list
           authors: [currentUser.pubkey],
@@ -2201,8 +2939,29 @@ async function unfollowContact(pubkey) {
     }
     window.unfollowedContacts.add(pubkey);
     
-    // Refresh the contact list display
-    await renderContactList(Array.from(contactManager.contacts.values()));
+    // Save to persistent storage
+    await saveUnfollowedContacts();
+    console.log(`Added ${pubkey} to unfollowed contacts. Total unfollowed: ${window.unfollowedContacts.size}`);
+    
+    // Also persist blocked contacts to storage
+    if (!window.blockedContacts) {
+      window.blockedContacts = new Set();
+    }
+    window.blockedContacts.add(pubkey);
+    try {
+      await chrome.storage.local.set({
+        blockedContacts: Array.from(window.blockedContacts)
+      });
+      console.log(`Persisted blocked contact ${pubkey} to storage`);
+    } catch (error) {
+      console.error('Error persisting blocked contact:', error);
+    }
+    
+    // Refresh the contact list display - ensure unfollowed contacts are filtered out
+    const filteredContacts = Array.from(contactManager.contacts.values()).filter(contact => 
+      !window.unfollowedContacts.has(contact.pubkey)
+    );
+    await renderContactList(filteredContacts);
     
     console.log(`${isFollowedContact ? 'Unfollowed' : 'Blocked'} contact: ${pubkey}`);
   } catch (error) {
@@ -2257,6 +3016,9 @@ async function showProfileModal(pubkey, metadata) {
           </div>
         ` : ''}
       </div>
+      
+      <!-- NWC section removed from other people's profiles - only shows in your own profile -->
+      
       <div class="modal-buttons">
         <button class="copy-button">Copy</button>
         <button class="close-button">Close</button>
@@ -2265,6 +3027,8 @@ async function showProfileModal(pubkey, metadata) {
   `;
   
   document.body.appendChild(modal);
+
+  // NWC initialization removed - only needed for your own profile
 
   // Add copy functionality
   const copyButtons = modal.querySelectorAll('.copy-button');
@@ -2283,6 +3047,124 @@ async function showProfileModal(pubkey, metadata) {
         showErrorMessage('Failed to copy to clipboard');
       }
     });
+  });
+
+  // Add NWC functionality - ensure elements exist before adding listeners
+  // Use requestAnimationFrame to ensure DOM is fully rendered
+  requestAnimationFrame(() => {
+    // Try multiple selectors to find the elements
+    const nwcConnectBtn = modal.querySelector('#nwc-connect');
+    const nwcDisconnectBtn = modal.querySelector('#nwc-disconnect');
+    const nwcInputSection = modal.querySelector('.nwc-input-section') || modal.querySelector('[class*="nwc-input"]');
+    const nwcUriInput = modal.querySelector('#nwc-uri') || modal.querySelector('input[placeholder*="nostr+walletconnect"]');
+    
+    console.log('NWC elements found:', {
+      nwcConnectBtn: !!nwcConnectBtn,
+      nwcDisconnectBtn: !!nwcDisconnectBtn,
+      nwcInputSection: !!nwcInputSection,
+      nwcUriInput: !!nwcUriInput
+    });
+    
+    console.log('NWC input element:', nwcUriInput);
+    console.log('NWC input section element:', nwcInputSection);
+    
+    // Force the input field to be editable
+    if (nwcUriInput) {
+      nwcUriInput.removeAttribute('readonly');
+      nwcUriInput.removeAttribute('disabled');
+      nwcUriInput.style.pointerEvents = 'auto';
+      nwcUriInput.style.userSelect = 'text';
+      nwcUriInput.style.webkitUserSelect = 'text';
+      nwcUriInput.style.mozUserSelect = 'text';
+      nwcUriInput.style.msUserSelect = 'text';
+      nwcUriInput.style.background = 'white !important';
+      nwcUriInput.style.color = 'black !important';
+      nwcUriInput.style.border = '1px solid #ccc';
+      console.log('NWC input field made editable');
+    } else {
+      console.error('NWC input field NOT FOUND!');
+      // Try to find it by looking at all inputs in the modal
+      const allInputs = modal.querySelectorAll('input');
+      console.log('All inputs in modal:', allInputs);
+      console.log('Modal HTML structure:', modal.innerHTML);
+      
+      // Try alternative selectors
+      const alternativeInput = modal.querySelector('input[type="text"]') || 
+                              modal.querySelector('input[placeholder*="nostr"]') ||
+                              modal.querySelector('input[placeholder*="wallet"]');
+      
+      if (alternativeInput) {
+        console.log('Found alternative input:', alternativeInput);
+        alternativeInput.removeAttribute('readonly');
+        alternativeInput.removeAttribute('disabled');
+        alternativeInput.style.pointerEvents = 'auto';
+        alternativeInput.style.userSelect = 'text';
+        alternativeInput.style.background = 'white !important';
+        alternativeInput.style.color = 'black !important';
+        alternativeInput.style.border = '1px solid #ccc';
+        console.log('Alternative input field made editable');
+      }
+      
+      // If still not found, try a different approach - wait a bit longer
+      setTimeout(() => {
+        console.log('Trying delayed NWC element search...');
+        const delayedInput = modal.querySelector('#nwc-uri');
+        if (delayedInput) {
+          console.log('Found NWC input with delay:', delayedInput);
+          delayedInput.removeAttribute('readonly');
+          delayedInput.removeAttribute('disabled');
+          delayedInput.style.pointerEvents = 'auto';
+          delayedInput.style.userSelect = 'text';
+          delayedInput.style.background = 'white !important';
+          delayedInput.style.color = 'black !important';
+          delayedInput.style.border = '1px solid #ccc';
+          console.log('Delayed NWC input field made editable');
+        } else {
+          console.error('NWC input still not found after delay');
+        }
+      }, 100);
+    }
+
+    if (nwcConnectBtn && nwcUriInput) {
+      nwcConnectBtn.addEventListener('click', () => {
+        console.log('NWC Connect button clicked');
+        
+        const uri = nwcUriInput.value.trim();
+        if (!uri) {
+          showErrorMessage('Please enter a NWC URI');
+          nwcUriInput.focus();
+          return;
+        }
+        
+        // Submit connection
+        console.log('Submitting connection');
+        handleNWCConnect(modal);
+      });
+    } else {
+      console.error('NWC elements not found:', { 
+        nwcConnectBtn: !!nwcConnectBtn, 
+        nwcUriInput: !!nwcUriInput 
+      });
+    }
+
+    if (nwcDisconnectBtn) {
+      nwcDisconnectBtn.addEventListener('click', async () => {
+        try {
+          const response = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ type: 'NWC_DISCONNECT' }, resolve);
+          });
+          
+          if (response.ok) {
+            showErrorMessage('NWC disconnected successfully!', 'success');
+            await initializeNWCStatus(modal);
+          } else {
+            showErrorMessage(response.error || 'Failed to disconnect NWC');
+          }
+        } catch (error) {
+          showErrorMessage('Failed to disconnect NWC');
+        }
+      });
+    }
   });
 
   // Add close functionality
@@ -2338,14 +3220,21 @@ async function initializeGroupChat(groupId) {
     <div class="group-header">
       <img src="${(group.picture || '').trim() || 'icons/default-group.png'}" 
            alt="${group.name || 'Group'}" 
-           onerror="this.src='icons/default-group.png'" 
-           class="group-avatar">
+           class="group-avatar" id="group-avatar-${groupId}">
       <div class="group-header-info">
         <div class="group-header-name">${group.name || 'Unnamed Group'}</div>
         <div class="group-header-members">${group.members?.length || 0} members</div>
       </div>
     </div>
   `;
+
+  // Ensure group avatar fallback without inline handler
+  const headerImg = chatHeader.querySelector(`#group-avatar-${groupId}`);
+  if (headerImg) {
+    headerImg.addEventListener('error', () => {
+      headerImg.src = 'icons/default-group.png';
+    });
+  }
 
   // Fetch and render messages
   const messages = await groupMessageManager.fetchGroupMessages(groupId);
@@ -2458,37 +3347,6 @@ async function renderGroupMessages(messages, groupId) {
   await loadLinkPreviews();
 }
 
-/**
- * @file popup.js
- * @description Main UI controller for the Nostr Messenger Chrome Extension
- * 
- * Core features:
- * - User authentication and login flow
- * - Contact list management and display
- * - Chat interface and message handling
- * - Stream/channel integration
- * - Search functionality
- * - UI state management
- * 
- * UI Components:
- * - Login screen with NIP-07/NSEC support
- * - Contact list with search
- * - Chat interface with emoji/GIF support
- * - Message preview system
- * - Stream embedding
- * 
- * State Management:
- * - Current chat tracking
- * - Message timestamps
- * - Search history
- * - UI element listeners
- * 
- * @requires auth
- * @requires contactManager
- * @requires messageManager
- * @requires userMetadata
- */
-
 async function initializeApp() {
   try {
     await auth.init();
@@ -2497,6 +3355,10 @@ async function initializeApp() {
     console.log('POPUP INIT: currentUser:', currentUser?.pubkey?.slice(0,8));
     if (currentUser) {
       console.log('POPUP INIT: About to call contactManager.init()');
+      
+      // Initialize unfollowed contacts from storage
+      await initializeUnfollowedContacts();
+      
       // Initialize contacts
       const contacts = await contactManager.init(currentUser.pubkey);
       console.log('POPUP INIT: contactManager.init() completed, got', contacts?.length, 'contacts');
@@ -2697,63 +3559,18 @@ async function showGroupEditModal(group) {
 }
 
 async function leaveGroup(groupId) {
+  console.log('🚨 leaveGroup FUNCTION STARTED with groupId:', groupId);
   try {
+    console.log('🔍 window.groupContactManager exists:', !!window.groupContactManager);
     const group = window.groupContactManager.groups.get(groupId);
     if (!group) {
       console.error('Group not found:', groupId);
       return;
     }
 
-    const currentUser = await window.auth.getCurrentUser();
-    if (!currentUser?.pubkey) {
-      console.error('User not authenticated');
-      return;
-    }
-
-    // Check if we have connected relays
-    const relays = window.relayPool.getConnectedRelays();
-    if (!relays || relays.length === 0) {
-      console.error('No connected relays');
-      return;
-    }
-
-    // Create leave event
-    const event = {
-      kind: 41,
-      pubkey: currentUser.pubkey,
-      created_at: Math.floor(Date.now() / 1000),
-      tags: [
-        ['e', groupId], // Reference to the group
-        ['p', currentUser.pubkey], // Reference to self
-        ['client', 'tides']
-      ],
-      content: JSON.stringify({
-        action: 'leave',
-        updated_at: Math.floor(Date.now() / 1000)
-      })
-    };
-
-    // Sign the event
-    event.id = nostrCore.getEventHash(event);
-    if (currentUser.type === 'NIP-07') {
-      event.sig = await window.nostr.signEvent(event);
-    } else {
-      event.sig = nostrCore.getSignature(event, currentUser.privkey);
-    }
-
-    console.log('Publishing leave event:', event);
-
-    // Publish to all connected relays
-    try {
-      await Promise.race([
-        window.groupContactManager.pool.publish(relays, event),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 5000))
-      ]);
-      console.log('Leave event published successfully');
-
-      // Add to leftGroups set and remove from groups map
-      window.groupContactManager.leftGroups.add(groupId);
-      window.groupContactManager.groups.delete(groupId);
+    // Use the new groupContactManager.leaveGroup function
+    await window.groupContactManager.leaveGroup(groupId);
+    console.log('Group left successfully');
 
       // Clear chat if it's the current group
       const currentChat = document.querySelector('.chat-container');
@@ -2767,67 +3584,34 @@ async function leaveGroup(groupId) {
 
       // Update only the groups section
       const groupContent = document.getElementById('groupsContent');
-      if (groupContent) {
-        // Clear existing content
-        groupContent.innerHTML = '';
-
-        // Add create group button
-        const createGroupButton = document.createElement('button');
-        createGroupButton.className = 'create-group-button';
-        createGroupButton.innerHTML = '<span>Create New Group</span>';
-        groupContent.appendChild(createGroupButton);
-
-        // Initialize the create group button
-        initializeCreateGroupButton();
-
-        // Add remaining groups
-        if (window.groupContactManager) {
-          const userGroups = Array.from(window.groupContactManager.groups.values())
-            .filter(group => !window.groupContactManager.leftGroups.has(group.id))
-            .sort((a, b) => {
-              const timeA = a.lastMessage?.created_at || a.created_at;
-              const timeB = b.lastMessage?.created_at || b.created_at;
-              return timeB - timeA;
-            });
-
-          if (userGroups && userGroups.length > 0) {
-            userGroups.forEach(group => {
-              const groupElement = createContactElement({
-                pubkey: group.id,
-                id: group.id,
-                displayName: group.name || 'Unnamed Group',
-                avatarUrl: (group.picture || '').trim() || 'icons/default-group.png',
-                about: group.about || '',
-                created_at: group.created_at,
-                isGroup: true,
-                members: group.members || [],
-                creator: group.creator,
-                name: group.name || 'Unnamed Group',
-                picture: (group.picture || '').trim() || 'icons/default-group.png'
-              });
-              groupContent.appendChild(groupElement);
-            });
-          } else {
-            const noGroupsMessage = document.createElement('div');
-            noGroupsMessage.className = 'no-groups-message';
-            noGroupsMessage.textContent = 'No groups yet';
-            groupContent.appendChild(noGroupsMessage);
-          }
+    if (groupContent && window.groupContactManager) {
+      // Instead of recreating the entire UI (which can cause conflicts),
+      // just remove the specific group that was left
+      const groupElement = groupContent.querySelector(`[data-pubkey="${groupId}"]`);
+      if (groupElement) {
+        groupElement.remove();
+      }
+      
+      // If no groups left, show the "no groups" message
+      const remainingGroups = groupContent.querySelectorAll('.contact-item');
+      const noGroupsMessage = groupContent.querySelector('.no-groups-message');
+      
+      if (remainingGroups.length === 0 && !noGroupsMessage) {
+        const noGroupsMsg = document.createElement('div');
+        noGroupsMsg.className = 'no-groups-message';
+        noGroupsMsg.textContent = 'No groups yet';
+        groupContent.appendChild(noGroupsMsg);
         }
     }
 
     showErrorMessage('Successfully left the group', 'success');
     return true;
-    } catch (error) {
-      console.error('Error publishing leave event:', error);
-      throw error;
-    }
+    
   } catch (error) {
     console.error('Error leaving group:', error);
     throw error;
   }
 }
-
 async function showLeaveGroupModal(group) {
   const modal = document.createElement('div');
   modal.className = 'leave-group-modal';
@@ -2856,7 +3640,7 @@ async function showLeaveGroupModal(group) {
       confirmBtn.disabled = true;
       confirmBtn.textContent = 'Leaving...';
       await leaveGroup(group.id);
-      modal.remove(); // Explicitly remove modal after successful leave
+      modal.remove();
     } catch (error) {
       console.error('Failed to leave group:', error);
       showErrorMessage('Failed to leave group: ' + error.message);
@@ -2865,177 +3649,19 @@ async function showLeaveGroupModal(group) {
     }
   };
   
-  cancelBtn.onclick = () => modal.remove();
-  
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) {
+  cancelBtn.onclick = () => {
       modal.remove();
-    }
-  });
-}
-
-// Remove the standalone event listener
-document.querySelector('.create-group-button')?.addEventListener('click', () => {
-  // ... remove this entire block ...
-});
-
-// Remove the delegated event listener
-document.addEventListener('DOMContentLoaded', () => {
-  // ... remove this entire block ...
-});
-
-// Update the initializeCreateGroupButton function to handle multiple initializations
-function initializeCreateGroupButton() {
-  // Wait for DOM to be ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeCreateGroupButton);
-    return;
-  }
-
-  // Find the button
-  const createGroupButton = document.querySelector('.create-group-button');
-  if (!createGroupButton) {
-    // Button not found, try again in a moment as it might be added dynamically
-    setTimeout(initializeCreateGroupButton, 500);
-    return;
-  }
-
-  // Remove any existing click listeners to prevent duplicates
-  const newButton = createGroupButton.cloneNode(true);
-  if (createGroupButton && createGroupButton.parentNode) {
-  createGroupButton.parentNode.replaceChild(newButton, createGroupButton);
-  }
-
-  newButton.addEventListener('click', () => {
-    showCreateGroupModal();
-  });
-}
-
-function showCreateGroupModal() {
-    const modal = document.createElement('div');
-    modal.className = 'create-group-modal';
-    
-    modal.innerHTML = `
-      <div class="create-group-modal-content">
-        <div class="create-group-header">
-        <img src="icons/default-group.png" alt="Group" class="profile-avatar">
-          <h3>Create New Group</h3>
-        </div>
-      <form id="create-group-form">
-          <div class="create-group-field">
-          <label for="group-name">Group Name</label>
-              <input type="text" id="group-name" required>
-          </div>
-          <div class="create-group-field">
-          <label for="group-about">Description</label>
-              <textarea id="group-about" rows="3"></textarea>
-          </div>
-          <div class="create-group-field">
-          <label for="group-picture">Picture URL (optional)</label>
-              <input type="url" id="group-picture">
-          </div>
-          <div class="create-group-buttons">
-            <button type="button" class="cancel-button">Cancel</button>
-            <button type="submit" class="submit-button">Create Group</button>
-          </div>
-        </form>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-    
-    const form = modal.querySelector('#create-group-form');
-    const submitBtn = modal.querySelector('.submit-button');
-  const cancelBtn = modal.querySelector('.cancel-button');
-    
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Creating...';
-      
-    const name = modal.querySelector('#group-name').value;
-    const about = modal.querySelector('#group-about').value;
-    const picture = modal.querySelector('#group-picture').value;
-    
-    try {
-      await handleCreateGroup(name, about, picture);
-      modal.remove();
-    } catch (error) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Create Group';
-    }
+    isModalOpen = false;
+    console.log('🔓 Modal closed, flag reset');
   };
   
-  cancelBtn.onclick = () => modal.remove();
-  
   modal.addEventListener('click', (e) => {
     if (e.target === modal) {
       modal.remove();
+      isModalOpen = false;
+      console.log('🔓 Modal closed by background click, flag reset');
     }
   });
-}
-
-async function handleCreateGroup(name, about, picture) {
-  try {
-    const group = await window.groupContactManager.createGroup(name, about, [], picture);
-    console.log('Group created:', group);
-
-    // Close any open modals
-    document.querySelectorAll('.create-group-modal').forEach(modal => modal.remove());
-
-    // Update only the groups section
-    const groupContent = document.getElementById('groupsContent');
-    if (groupContent) {
-      // Clear existing content
-      groupContent.innerHTML = '';
-
-      // Add create group button
-      const createGroupButton = document.createElement('button');
-      createGroupButton.className = 'create-group-button';
-      createGroupButton.innerHTML = '<span>Create New Group</span>';
-      groupContent.appendChild(createGroupButton);
-
-      // Initialize the create group button
-      initializeCreateGroupButton();
-
-      // Add all groups including the new one
-      if (window.groupContactManager) {
-        const userGroups = Array.from(window.groupContactManager.groups.values())
-          .filter(group => !window.groupContactManager.leftGroups.has(group.id))
-          .sort((a, b) => {
-            const timeA = a.lastMessage?.created_at || a.created_at;
-            const timeB = b.lastMessage?.created_at || b.created_at;
-            return timeB - timeA;
-          });
-
-        if (userGroups && userGroups.length > 0) {
-          userGroups.forEach(group => {
-            const groupElement = createContactElement({
-              pubkey: group.id,
-              id: group.id,
-              displayName: group.name || 'Unnamed Group',
-              avatarUrl: (group.picture || '').trim() || 'icons/default-group.png',
-              about: group.about || '',
-              created_at: group.created_at,
-              isGroup: true,
-              members: group.members || [],
-              creator: group.creator,
-              name: group.name || 'Unnamed Group',
-              picture: (group.picture || '').trim() || 'icons/default-group.png'
-            });
-            groupContent.appendChild(groupElement);
-          });
-        }
-      }
-    }
-
-    showErrorMessage('Group created successfully', 'success');
-    return group;
-  } catch (error) {
-    console.error('Error creating group:', error);
-    showErrorMessage('Failed to create group: ' + error.message);
-    throw error;
-  }
 }
 
 // Update search functionality
@@ -3046,26 +3672,9 @@ function initializeSearch() {
   if (!searchInput || !clearSearch) return;
 
   function performSearch(query) {
-    query = query.toLowerCase().trim();
-    
-    // Get all contact elements
-    const contactElements = document.querySelectorAll('.contact-item');
-    
-    contactElements.forEach(element => {
-      const name = element.querySelector('.contact-name')?.textContent?.toLowerCase() || '';
-      const about = element.querySelector('.contact-about')?.textContent?.toLowerCase() || '';
-      const isMatch = name.includes(query) || about.includes(query);
-      
-      // Show/hide based on match
-      element.style.display = isMatch || query === '' ? '' : 'none';
-    });
-
-    // Show/hide section headers based on visible contacts
-    document.querySelectorAll('.contact-section').forEach(section => {
-      const visibleContacts = section.querySelectorAll('.contact-item:not([style*="display: none"])').length;
-      const hasCreateButton = section.querySelector('.create-group-button') !== null;
-      section.style.display = visibleContacts > 0 || hasCreateButton ? '' : 'none';
-    });
+    // Single source of truth: re-render list with filter term
+    const contacts = Array.from(contactManager.contacts.values());
+    renderContactList(contacts, query);
   }
 
   searchInput.addEventListener('input', (e) => {
@@ -3197,13 +3806,13 @@ async function createMessageElement(message, isNew = false) {
 // Update the zap handling listener
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'ZAP_RECEIVED') {
-    const { messageId, amount, zapperPubkey, timestamp } = message.data;
-    handleReceivedZap(messageId, amount, zapperPubkey, timestamp);
+    const { messageId, amount } = message.data;
+    handleReceivedZap(messageId, amount);
   }
   return true;
 });
 
-async function handleReceivedZap(messageId, amount, zapperPubkey, timestamp) {
+async function handleReceivedZap(messageId, amount) {
   const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
   if (messageElement) {
     const zapAmount = messageElement.querySelector('.zap-amount');
@@ -3236,3 +3845,250 @@ async function handleReceivedZap(messageId, amount, zapperPubkey, timestamp) {
   }
 }
 
+// NWC Helper Functions
+async function initializeNWCStatus(modal) {
+  try {
+    const nwcStatus = modal.querySelector('#nwc-status');
+    const nwcConnectBtn = modal.querySelector('#nwc-connect');
+    const nwcDisconnectBtn = modal.querySelector('#nwc-disconnect');
+    
+    const response = await new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'NWC_GET_INFO' }, resolve);
+    });
+    
+    if (response.ok && response.config) {
+      const config = response.config;
+      nwcStatus.innerHTML = `
+        <div class="nwc-connected">
+          <div class="nwc-wallet-info">
+            <strong>${config.alias || 'Unknown Wallet'}</strong>
+            <span class="nwc-network">${config.network || 'mainnet'}</span>
+          </div>
+          <div class="nwc-methods">
+            Methods: ${config.methods.join(', ')}
+          </div>
+    </div>
+  `;
+      
+      // Show existing connection state
+      nwcConnectBtn.style.display = 'none';
+      nwcDisconnectBtn.style.display = 'block';
+      
+      // If we have a stored URI, populate the input field
+      const uriInput = modal.querySelector('#nwc-uri');
+      if (uriInput && config.uri) {
+        uriInput.value = config.uri;
+        uriInput.readOnly = true;
+        uriInput.style.backgroundColor = '#f0f0f0';
+        uriInput.style.cursor = 'default';
+      }
+    } else {
+      nwcStatus.innerHTML = `
+        <div class="nwc-disconnected">
+          <span>Not connected</span>
+    </div>
+  `;
+      nwcConnectBtn.style.display = 'block';
+      nwcDisconnectBtn.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error initializing NWC status:', error);
+    const nwcStatus = modal.querySelector('#nwc-status');
+    nwcStatus.innerHTML = `
+      <div class="nwc-error">
+        <span>Error loading status</span>
+      </div>
+    `;
+  }
+}
+
+async function handleNWCConnect(modal) {
+  const uriInput = modal.querySelector('#nwc-uri');
+  const connectBtn = modal.querySelector('#nwc-connect');
+  const inputSection = modal.querySelector('.nwc-input-section');
+  
+  const uri = uriInput.value.trim();
+  if (!uri) {
+    showErrorMessage('Please enter a NWC URI');
+    return;
+  }
+  
+  try {
+    connectBtn.disabled = true;
+    connectBtn.textContent = 'Connecting...';
+    
+    const response = await new Promise(resolve => {
+      chrome.runtime.sendMessage({ 
+        type: 'NWC_CONNECT', 
+        data: { uri } 
+      }, resolve);
+    });
+    
+    if (response.ok) {
+      showErrorMessage('NWC connected successfully!', 'success');
+      // Keep URI visible but make it read-only
+      uriInput.readOnly = true;
+      uriInput.style.backgroundColor = '#f0f0f0';
+      uriInput.style.cursor = 'default';
+      // Change button to show connected state
+      connectBtn.textContent = 'Connected';
+      connectBtn.disabled = true;
+      connectBtn.classList.add('success-button');
+      // Refresh NWC status
+      await initializeNWCStatus(modal);
+    } else {
+      showErrorMessage(response.error || 'Failed to connect NWC');
+      connectBtn.disabled = false;
+      connectBtn.textContent = 'Connect';
+    }
+  } catch (error) {
+    showErrorMessage('Failed to connect NWC');
+    connectBtn.disabled = false;
+    connectBtn.textContent = 'Connect';
+  }
+}
+
+function showNWCConnectModal() {
+    const modal = document.createElement('div');
+  modal.className = 'modal nwc-connect-modal';
+  
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h3>Connect NWC Wallet</h3>
+      <p>Paste your NWC connection string:</p>
+      <div class="input-group">
+        <input type="text" id="nwc-uri" placeholder="nostr+walletconnect://..." />
+      </div>
+      <div class="nwc-help">
+        <p><strong>How to get this:</strong></p>
+        <ol>
+          <li>Open your NWC-compatible wallet</li>
+          <li>Look for "Connect" or "Add Client"</li>
+          <li>Copy the connection string</li>
+          <li>Paste it here</li>
+        </ol>
+    </div>
+      <div class="modal-buttons">
+        <button id="nwc-connect-submit" class="primary-button">Connect</button>
+        <button id="nwc-connect-cancel" class="secondary-button">Cancel</button>
+            </div>
+      </div>
+    `;
+  
+    document.body.appendChild(modal);
+  
+  const uriInput = modal.querySelector('#nwc-uri');
+  const submitBtn = modal.querySelector('#nwc-connect-submit');
+  const cancelBtn = modal.querySelector('#nwc-connect-cancel');
+  
+  submitBtn.addEventListener('click', async () => {
+    const uri = uriInput.value.trim();
+    if (!uri) {
+      showErrorMessage('Please enter a NWC URI');
+      return;
+    }
+    
+    try {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Connecting...';
+      
+      const response = await new Promise(resolve => {
+        chrome.runtime.sendMessage({ 
+          type: 'NWC_CONNECT', 
+          data: { uri } 
+        }, resolve);
+      });
+      
+      if (response.ok) {
+        showErrorMessage('NWC connected successfully!', 'success');
+    modal.remove();
+        // Refresh the profile modal if it's open
+        const profileModal = document.querySelector('.profile-modal');
+        if (profileModal) {
+          await initializeNWCStatus(profileModal);
+        }
+    } else {
+        showErrorMessage(response.error || 'Failed to connect NWC');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Connect';
+      }
+    } catch (error) {
+      showErrorMessage('Failed to connect NWC');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Connect';
+    }
+  });
+  
+  cancelBtn.addEventListener('click', () => {
+    modal.remove();
+  });
+  
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+    modal.remove();
+    }
+  });
+}
+
+// Initialize unfollowed contacts from storage
+async function initializeUnfollowedContacts() {
+  try {
+    const result = await chrome.storage.local.get('unfollowedContacts');
+    if (result.unfollowedContacts) {
+      window.unfollowedContacts = new Set(result.unfollowedContacts);
+      console.log(`Loaded ${window.unfollowedContacts.size} unfollowed contacts from storage:`, Array.from(window.unfollowedContacts).map(p => p.slice(0,8)));
+        } else {
+      window.unfollowedContacts = new Set();
+      console.log('No unfollowed contacts found in storage');
+    }
+  } catch (error) {
+    console.error('Error loading unfollowed contacts:', error);
+    window.unfollowedContacts = new Set();
+  }
+}
+
+// Save unfollowed contacts to storage
+async function saveUnfollowedContacts() {
+  try {
+    const unfollowedArray = Array.from(window.unfollowedContacts);
+    await chrome.storage.local.set({ unfollowedContacts: unfollowedArray });
+    console.log(`Saved ${unfollowedArray.length} unfollowed contacts to storage:`, unfollowedArray.map(p => p.slice(0,8)));
+  } catch (error) {
+    console.error('Error saving unfollowed contacts:', error);
+  }
+}
+
+// Test if group management functions exist
+console.log('🔍 showCreateGroupModal function exists:', typeof showCreateGroupModal);
+console.log('🔍 leaveGroup function exists:', typeof leaveGroup);
+
+/**
+ * @file popup.js
+ * @description Main UI controller for the Nostr Messenger Chrome Extension
+ * 
+ * Core features:
+ * - User authentication and login flow
+ * - Contact list management and display
+ * - Chat interface and message handling
+ * - Stream/channel integration
+ * - Search functionality
+ * - UI state management
+ * 
+ * UI Components:
+ * - Login screen with NIP-07/NSEC support
+ * - Contact list with search
+ * - Chat interface with emoji/GIF support
+ * - Message preview system
+ * - Stream embedding
+ * 
+ * State Management:
+ * - Current chat tracking
+ * - Message timestamps
+ * - Search history
+ * - UI element listeners
+ * 
+ * @requires auth
+ * @requires contactManager
+ * @requires messageManager
+ * @requires userMetadata
+ */

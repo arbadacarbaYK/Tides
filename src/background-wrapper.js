@@ -1,5 +1,5 @@
 importScripts('lib/nostr-tools.js');
-importScripts('background.js'); 
+importScripts('background.js');
 
 /**
  * @file background-wrapper.js

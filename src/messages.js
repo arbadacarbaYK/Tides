@@ -1,7 +1,7 @@
 import { pool, RELAYS, nostrCore, relayPool, pubkeyToNpub } from './shared.js';
 import { auth } from './auth.js';
 import { validateEvent } from './utils.js';
-import NostrTools from 'nostr-tools';
+// NostrTools is loaded via script tag in popup.html
 
 export class MessageManager {
   constructor() {

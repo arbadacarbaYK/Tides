@@ -1,2 +1,36 @@
-node_modules
-dist
+# Test Files (exclude all files starting with test_)
+test_*
+
+# Build and dependency directories
+dist/
+node_modules/
+lib/
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+nwc_test_env/
+
+# NWC Test Files (contain sensitive connection strings)
+python_nwc.py
+compare_nwc_implementations.py
+nwc_test.js
+
+# Test Results and logs
+*.log
+logs.txt
+test_results/
+
+# Documentation files (development notes)
+result.txt
+NWC_IMPLEMENTATION_SUMMARY.md
+NWC_PLAN.md
+TIDES_NWC_INTEGRATION_SUMMARY.md
+
+# OBSOLETE: FallbackRelayProxy approach (replaced with Working WebSocket Relay Strategy)
+# relay-proxy.js
+# fallback-relay-proxy.js

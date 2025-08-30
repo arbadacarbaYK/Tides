@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!text) return '';
     return text
       .replace(/\n/g, '<br>')
-      .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|[a-zA-Z0-9][a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g, (url) => {
+      .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g, (url) => {
         const fullUrl = url.startsWith('http') ? url : `https://${url}`;
         return `<a href="${fullUrl}" target="_blank" rel="noopener">${url}</a>`;
       });
@@ -42,13 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
     linkifyText(text) {
       if (!text) return '';
       
-      // URL regex pattern
-      const urlPattern = /(https?:\/\/[^\s]+)/g;
-      
-      // Replace URLs with clickable links
-      return text.replace(urlPattern, (url) => {
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-      });
+      return text
+        .replace(/\n/g, '<br>')
+        .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|www\.[^\s<]+[^<.,:;"')\]\s]|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b(?:\/[^\s<]*)?)/g, (url) => {
+          const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+          return `<a href="${fullUrl}" target="_blank" rel="noopener">${url}</a>`;
+        });
     }
 
     async subscribeToGroup(groupId) {
@@ -392,7 +391,22 @@ document.addEventListener('DOMContentLoaded', () => {
           event.sig = NostrTools.getSignature(event, currentUser.privkey);
         }
 
-        await this.pool.publish(connectedRelays, event);
+        // Publish directly to each relay to bypass any subscription filters
+        const publishPromises = connectedRelays.map(relay => {
+          return new Promise((resolve, reject) => {
+            try {
+              // Use the main shared pool for publishing
+              window.pool.publish([relay], event).then(resolve).catch(reject);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        });
+
+        await Promise.race([
+          Promise.allSettled(publishPromises),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 10000))
+        ]);
 
         // Clear input field immediately after sending
         const messageInput = document.getElementById('messageInput');

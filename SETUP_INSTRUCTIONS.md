@@ -1,3 +1,25 @@
+# Setup Instructions
+
+## Requirements
+- Node 18+
+- Chrome/Brave (Chromium-based)
+
+## Install
+1. npm install
+2. npm run build
+3. Load unpacked in browser, select `dist/`
+
+## Development
+- Build: `npm run build`
+- Clean: `npm run clean`
+
+## Env/Config
+- No .env required. NWC and relay configuration stored via Chrome storage.
+
+## Release Steps
+1. Update `package.json` and `manifest.json` versions (kept in sync).
+2. Update `CHANGELOG.md`.
+3. `npm run build` → upload `dist/` as release asset or `Load unpacked`.
 # Tides Development Setup Instructions
 
 ## Prerequisites

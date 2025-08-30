@@ -54,17 +54,38 @@ export default [
     input: 'src/background-wrapper.js',
     output: {
       file: 'dist/background-wrapper.js',
-      format: 'iife'
+      format: 'iife',
+      name: 'BackgroundWrapper'
     }
   },
-  createConfig('src/popup.js', 'popup.js', 'Popup'),
+
+
+  {
+    input: 'src/popup.js',
+    output: {
+      file: 'dist/popup.js',
+      format: 'es',
+      name: 'Popup'
+    },
+    inlineDynamicImports: true,
+    plugins: [
+      resolve({
+        browser: true,
+        preferBuiltins: false,
+        mainFields: ['browser', 'module', 'main']
+      }),
+      commonjs({
+        include: /node_modules/,
+        transformMixedEsModules: true
+      }),
+      terser()
+    ]
+  },
   createConfig('src/shared.js', 'shared.js', 'Shared'),
   createConfig('src/auth.js', 'auth.js', 'Auth'),
   createConfig('src/contact.js', 'contact.js', 'Contact'),
   createConfig('src/messages.js', 'messages.js', 'Messages'),
   createConfig('src/nip89.js', 'nip89.js', 'Nip89'),
   createConfig('src/userMetadata.js', 'userMetadata.js', 'UserMetadata'),
-  createConfig('src/utils.js', 'utils.js', 'Utils'),
-  createConfig('src/groupContact.js', 'groupContact.js', 'GroupContact'),
-  createConfig('src/groupMessages.js', 'groupMessages.js', 'GroupMessages')
+  createConfig('src/utils.js', 'utils.js', 'Utils')
 ];

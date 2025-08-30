@@ -1,11 +1,14 @@
-import { SimplePool, nip19, getPublicKey, getEventHash, getSignature } from 'nostr-tools';
+import { SimplePool, nip19, getPublicKey, getEventHash, getSignature, nip04 } from 'nostr-tools';
 
 // Core nostr functionality export
 export const nostrCore = {
   nip19,
   getPublicKey,
   getEventHash,
-  getSignature
+  getSignature,
+  nip04,
+  encrypt: nip04.encrypt,
+  decrypt: nip04.decrypt
 };
 
 // Export pool instance for direct use
@@ -20,9 +23,13 @@ export const RELAYS = [
   'wss://relay.damus.io',
   'wss://relay.nostr.band',
   'wss://nos.lol',
-  'wss://nostr.wine',
-  'wss://Inbox.azzamo.net',
-  'wss://nostr.einundzwanzig.space'
+  'wss://inbox.azzamo.net',
+  'wss://relay.primal.net',
+  'wss://nostr.azzamo.net',
+  'wss://nostr.einundzwanzig.space',
+  'wss://relay.nostr.net',
+  'wss://relay.nostr.watch',
+  'wss://relay.minibits.cash'
 ];
 
 // Utility functions
@@ -67,7 +74,13 @@ export class RelayPool {
 }
 
 export const relayPool = new RelayPool();
+
+// Export to global scope for other scripts
 window.relayPool = relayPool;
+window.RELAYS = RELAYS;
+window.nostrCore = nostrCore;
+// Ensure global access to the shared SimplePool for modules using window.pool
+window.pool = pool;
 
 /**
  * @file shared.js

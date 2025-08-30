@@ -1,21 +1,34 @@
-document.addEventListener('DOMContentLoaded', () => {
+console.log('🚨 groupContact.js LOADING STARTED!');
+
+// Initialize immediately when script loads
+console.log('🚨 groupContact.js LOADING STARTED!');
+
+// Check if required dependencies exist
+if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
+  console.error('❌ Required dependencies missing for groupContact.js:', {
+    RELAYS: !!window.RELAYS,
+    nostrCore: !!window.nostrCore,
+    relayPool: !!window.relayPool
+  });
+  // Don't initialize if dependencies are missing
+} else {
   const { RELAYS, nostrCore, relayPool } = window;
   const NostrTools = window.NostrTools || nostrCore;
 
-  // Create a new pool instance for groups
-  const groupPool = new NostrTools.SimplePool();
-
   class GroupContactManager {
     constructor() {
+      console.log('🚨 GroupContactManager constructor called!');
       this.groups = new Map();
       this.leftGroups = new Set(); // Track groups we've left
       this.subscriptions = new Map();
-      this.pool = groupPool;
+      this.pool = window.pool;
     }
 
     async init() {
       try {
         await this.ensureAuth();
+        // Ensure relay connections are established for subscriptions
+        await relayPool.ensureConnection();
         const currentUser = await window.auth.getCurrentUser();
         if (!currentUser?.pubkey) {
           throw new Error('User not authenticated');
@@ -26,12 +39,23 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Set up subscriptions for group updates
         const connectedRelays = relayPool.getConnectedRelays();
-        const filter = {
-          kinds: [40, 41],
-          '#p': [currentUser.pubkey.toLowerCase()]
-        };
+        
+        // CRITICAL FIX: Subscribe to BOTH events where user is tagged AND events created by user
+        const filters = [
+          // Events where user is tagged as member
+          {
+            kinds: [40, 41],
+            '#p': [currentUser.pubkey.toLowerCase()]
+          },
+          // Events created by the user (for group creation)
+          {
+            kinds: [40, 41],
+            authors: [currentUser.pubkey.toLowerCase()]
+          }
+        ];
 
-        const sub = this.pool.sub(connectedRelays, [filter]);
+        console.log('🔧 Setting up group subscriptions with filters:', filters);
+        const sub = this.pool.sub(connectedRelays, filters);
         sub.on('event', (event) => {
           if (this.validateGroupEvent(event)) {
             this.handleGroupUpdate(event);
@@ -49,11 +73,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async handleGroupUpdate(event) {
       try {
         console.log('Processing group event:', event);
-        
-        // Skip if this is a left group
-        if (this.leftGroups.has(event.id)) {
-          return;
-        }
 
         let metadata = {};
         try {
@@ -62,8 +81,30 @@ document.addEventListener('DOMContentLoaded', () => {
           metadata = { name: event.content || 'Unnamed Group' };
         }
 
-        const groupId = event.kind === 40 ? event.id : 
-                      event.tags.find(t => t[0] === 'e')?.[1] || event.id;
+        // Determine group ID based on event kind
+        let groupId;
+        if (event.kind === 40) {
+          // For creation events, use the event ID as the group ID
+          groupId = event.id;
+        } else if (event.kind === 41) {
+          // For update events, look for group reference in 'e' tags
+          groupId = event.tags.find(t => t[0] === 'e')?.[1];
+          if (!groupId) {
+            console.log('Kind 41 event has no group reference, using event ID');
+            groupId = event.id;
+          }
+        }
+
+        // Now that we have a groupId, skip updates for groups we've left
+        if (groupId && this.leftGroups.has(groupId)) {
+          console.log('Skipping event for left group:', groupId);
+          return;
+        }
+
+        if (!groupId) {
+          console.log('No valid group ID found for event');
+          return;
+        }
 
         // Get all members from p tags, ensuring lowercase
         let members = event.tags
@@ -79,11 +120,13 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!members.includes(creatorPubkey)) {
             members.push(creatorPubkey);
           }
-        }
-
-        // If this is an update (kind 41), merge with existing members
-        if (event.kind === 41 && existingGroup) {
-          members = [...new Set([...existingGroup.members, ...members])];
+          console.log('✅ Processing group creation event for group:', groupId);
+        } else if (event.kind === 41) {
+          console.log('✅ Processing group update event for group:', groupId);
+          // If this is an update, merge with existing members
+          if (existingGroup) {
+            members = [...new Set([...existingGroup.members, ...members])];
+          }
         }
 
         // Handle picture URL
@@ -114,12 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update the group in our map
         this.groups.set(groupId, group);
 
-        // Trigger UI update
-        if (typeof window.renderContactList === 'function') {
-          const contacts = window.contactManager?.contacts ? 
-            Array.from(window.contactManager.contacts.values()) : [];
-          window.renderContactList(contacts);
-        }
+        // UI update will be handled by popup.js when it detects the group update
       } catch (error) {
         console.error('Error handling group update:', error);
       }
@@ -149,6 +187,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async fetchUserGroups() {
       try {
+        // Ensure relay connections before listing
+        await relayPool.ensureConnection();
         const currentUser = await window.auth.getCurrentUser();
         if (!currentUser?.pubkey) {
           throw new Error('User not authenticated');
@@ -179,6 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Raw group events:', events);
 
         // First process leave events to build the leftGroups set
+        console.log('🔍 Processing leave events to build leftGroups set...');
         events
           .filter(event => event.kind === 41)
           .forEach(event => {
@@ -188,7 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const groupId = event.tags.find(t => t[0] === 'e')?.[1];
                 if (groupId) {
                   this.leftGroups.add(groupId);
-                  console.log('Found leave event for group:', groupId);
+                  console.log('🚫 Found leave event for group:', groupId);
                   // Also remove from groups if it exists
                   this.groups.delete(groupId);
                 }
@@ -198,23 +239,34 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           });
 
+        console.log('📋 Left groups set:', Array.from(this.leftGroups));
+
         // Clear existing groups and rebuild from events
         this.groups.clear();
 
-        // Process events in chronological order
+        // Process events in chronological order, filtering out left groups
         const validGroups = events
           .filter(event => this.validateGroupEvent(event))
-          .filter(event => !this.leftGroups.has(event.id))
           .sort((a, b) => a.created_at - b.created_at);
+
+        console.log('✅ Valid groups to process:', validGroups.length);
 
         // Process each event to build up the groups map
         validGroups.forEach(event => {
+          // Determine group ID for this event
+          let groupId;
+          if (event.kind === 40) {
+            groupId = event.id;
+          } else if (event.kind === 41) {
+            groupId = event.tags.find(t => t[0] === 'e')?.[1] || event.id;
+          }
+
           // Skip if this is a group we've left
-          const groupId = event.kind === 40 ? event.id : 
-                         event.tags.find(t => t[0] === 'e')?.[1] || event.id;
-          if (this.leftGroups.has(groupId)) {
+          if (groupId && this.leftGroups.has(groupId)) {
+            console.log('🚫 Skipping left group:', groupId);
             return;
           }
+
           this.handleGroupUpdate(event);
         });
 
@@ -255,10 +307,22 @@ document.addEventListener('DOMContentLoaded', () => {
           return false;
         }
 
-        // For kind 40 (group creation), must have content
-        if (event.kind === 40 && !event.content) {
-          console.log('Invalid kind 40 event: no content');
-          return false;
+        // For kind 40 (group creation), must have content and be a valid creation event
+        if (event.kind === 40) {
+          if (!event.content) {
+            console.log('Invalid kind 40 event: no content');
+            return false;
+          }
+          
+          // Must have at least one member (creator)
+          const hasMembers = event.tags.some(t => t[0] === 'p');
+          if (!hasMembers) {
+            console.log('Invalid kind 40 event: no members found');
+            return false;
+          }
+          
+          console.log('✅ Kind 40 (creation) event validated successfully');
+          return true;
         }
 
         // For kind 41 (group metadata/leave), check for leave action
@@ -281,40 +345,38 @@ document.addEventListener('DOMContentLoaded', () => {
                   // Emit an event that the group was left
                   window.dispatchEvent(new CustomEvent('groupLeft', { detail: { groupId } }));
                 });
-                return false;
+                return false; // Don't process leave events as regular group events
               }
             }
           } catch (e) {
             console.warn('Error parsing kind 41 content:', e);
           }
 
+          // For kind 41 updates, must have either group reference or members
           const hasGroupRef = event.tags.some(t => t[0] === 'e');
           const hasMembers = event.tags.some(t => t[0] === 'p');
           if (!hasGroupRef && !hasMembers) {
             console.log('Invalid kind 41 event: neither group reference nor members found');
             return false;
           }
-        }
-
-        // For kind 40, creator is an implicit member
-        // For kind 41, check for explicit members or creator
-        if (event.kind === 40 || event.tags.some(t => t[0] === 'p')) {
-          // Get all referenced group IDs from 'e' tags for this event
-          const groupIds = event.tags
-            .filter(t => t[0] === 'e')
-            .map(t => t[1]);
           
-          // Check if any of the referenced groups are in leftGroups
-          if (groupIds.some(id => this.leftGroups.has(id))) {
-            console.log('Skipping event for left group:', groupIds.join(', '));
-            return false;
+          // Check if any referenced groups are in leftGroups
+          if (hasGroupRef) {
+            const groupIds = event.tags
+              .filter(t => t[0] === 'e')
+              .map(t => t[1]);
+            
+            if (groupIds.some(id => this.leftGroups.has(id))) {
+              console.log('Skipping event for left group:', groupIds.join(', '));
+              return false;
+            }
           }
           
-          console.log('Event validated successfully');
+          console.log('✅ Kind 41 (update) event validated successfully');
           return true;
         }
 
-        console.log('Invalid event: no members and not a creation event');
+        console.log('Invalid event: unexpected kind', event.kind);
         return false;
       } catch (err) {
         console.error('Group event validation failed:', err);
@@ -323,15 +385,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async createGroup(name, about = '', members = [], picture = '') {
-      const currentUser = await auth.getCurrentUser();
-      if (!currentUser?.pubkey) {
-        throw new Error('User not authenticated');
-      }
-
+      // CRITICAL: Immediate logging to confirm method is called
+      console.log('🎯 createGroup called with:', { name, about, members, picture });
+      console.log('🎯 This is the REAL createGroup method from groupContact.js!');
+      console.log('🎯 Method execution started at:', new Date().toISOString());
+      // Avoid logging sensitive user details
+      const cu = await auth.getCurrentUser();
+      console.log('🎯 Current user present:', !!cu?.pubkey);
+      console.log('🎯 THIS METHOD SHOULD BE BOUND TO THE INSTANCE!');
+      
+      // CRITICAL: Add error handling to catch any issues
       try {
+        console.log('🔐 Starting authentication check...');
+        const currentUser = await auth.getCurrentUser();
+        if (!currentUser?.pubkey) {
+          throw new Error('User not authenticated');
+        }
+        
+        console.log('✅ User authenticated:', currentUser.pubkey);
+        console.log('✅ User type:', currentUser.type);
+        console.log('✅ User pubkey:', currentUser.pubkey);
+
         // For NIP-07, ensure we have permissions
         if (currentUser.type === 'NIP-07') {
+          console.log('🔐 NIP-07 user, checking permissions...');
           await window.nostr.enable();
+          console.log('✅ NIP-07 permissions granted');
         }
 
         const metadata = {
@@ -341,8 +420,11 @@ document.addEventListener('DOMContentLoaded', () => {
           created_at: Math.floor(Date.now() / 1000)
         };
 
+        console.log('📝 Creating group with metadata:', metadata);
+
+        // Create the group creation event (kind 40)
         const event = {
-          kind: 41, // Group metadata kind
+          kind: 40, // Group creation kind - MUST be 40 for new groups
           pubkey: currentUser.pubkey,
           created_at: Math.floor(Date.now() / 1000),
           tags: [
@@ -353,19 +435,70 @@ document.addEventListener('DOMContentLoaded', () => {
           content: JSON.stringify(metadata)
         };
 
-        event.id = NostrTools.getEventHash(event);
-        
+        console.log('📝 Raw event before signing:', event);
+
         if (currentUser.type === 'NIP-07') {
-          event.sig = await window.nostr.signEvent(event);
+          console.log('🔐 Signing with NIP-07...');
+          const signed = await window.nostr.signEvent(event);
+          event.id = signed.id;
+          event.sig = signed.sig;
+          event.pubkey = signed.pubkey;
+          console.log('✅ Event signed with NIP-07');
         } else {
+          console.log('🔐 Signing with private key...');
+          event.id = NostrTools.getEventHash(event);
           event.sig = NostrTools.getSignature(event, currentUser.privkey);
+          console.log('✅ Event signed with private key');
         }
 
+        console.log('📡 Publishing group creation event:', event);
+
+        // Ensure connections and use the main shared pool
+        await relayPool.ensureConnection();
         const relays = relayPool.getConnectedRelays();
-        await Promise.race([
-          this.pool.publish(relays, event),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 5000))
-        ]);
+        // Filter out known read-only or restricted relays
+        const writableRelays = relays.filter(url => !/nostr\.wine|nostr\.band|primal|nostr\.watch|relay\.nostr\.net|inbox\.azzamo\.net/i.test(url));
+        console.log('📡 Publishing to relays (writable filtered):', writableRelays);
+        
+        if (writableRelays.length === 0) {
+          throw new Error('No relays connected');
+        }
+
+        console.log('⏳ Waiting for publish ack...');
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const timeout = setTimeout(() => {
+            if (!settled) reject(new Error('Publish timeout'));
+          }, 10000);
+          try {
+            const pub = window.pool.publish(writableRelays, event);
+            pub.on('ok', (relay) => {
+              if (!settled) {
+                settled = true;
+                clearTimeout(timeout);
+                console.log('✅ Relay ok:', relay?.url || relay);
+                resolve(true);
+              }
+            });
+            pub.on('seen', (relay) => {
+              if (!settled) {
+                settled = true;
+                clearTimeout(timeout);
+                console.log('✅ Relay seen:', relay?.url || relay);
+                resolve(true);
+              }
+            });
+            pub.on('failed', (relay, reason) => {
+              console.warn('⚠️ Publish failed:', relay?.url || relay, reason);
+              // wait for other relays or timeout
+            });
+          } catch (e) {
+            clearTimeout(timeout);
+            reject(e);
+          }
+        });
+
+        console.log('✅ Group creation ack received');
 
         const group = {
           id: event.id,
@@ -375,21 +508,22 @@ document.addEventListener('DOMContentLoaded', () => {
           creator: currentUser.pubkey,
           created_at: event.created_at,
           members: [currentUser.pubkey, ...members],
-          lastMessage: null
+          lastMessage: null,
+          kind: 40 // Explicitly mark as creation event
         };
 
         this.groups.set(group.id, group);
+        console.log('✅ Group added to local groups map:', group);
         
-        // Trigger UI update after successful group creation
-        if (typeof window.renderContactList === 'function') {
-          const contacts = window.contactManager?.contacts ? 
-            Array.from(window.contactManager.contacts.values()) : [];
-          window.renderContactList(contacts);
-        }
+        // UI update will be handled by popup.js when it detects the new group
         
+        console.log('🎉 Group creation completed successfully!');
         return group;
       } catch (error) {
-        console.error('Error creating group:', error);
+        console.error('❌ Error creating group:', error);
+        console.error('❌ Error stack:', error.stack);
+        console.error('❌ Error name:', error.name);
+        console.error('❌ Error message:', error.message);
         throw error;
       }
     }
@@ -424,19 +558,33 @@ document.addEventListener('DOMContentLoaded', () => {
           content: JSON.stringify(metadata)
         };
 
-        event.id = nostrCore.getEventHash(event);
-        
         if (currentUser.type === 'NIP-07') {
-          event.sig = await window.nostr.signEvent(event);
+          const signed = await window.nostr.signEvent(event);
+          event.id = signed.id;
+          event.sig = signed.sig;
+          event.pubkey = signed.pubkey;
         } else {
+          event.id = nostrCore.getEventHash(event);
           event.sig = nostrCore.getSignature(event, currentUser.privkey);
         }
 
         const relays = relayPool.getConnectedRelays();
-        await Promise.race([
-          this.pool.publish(relays, event),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Publish timeout')), 5000))
-        ]);
+        const writableRelays = relays.filter(url => !/nostr\.wine|nostr\.band|primal|nostr\.watch|relay\.nostr\.net|inbox\.azzamo\.net/i.test(url));
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const timeout = setTimeout(() => {
+            if (!settled) reject(new Error('Publish timeout'));
+          }, 10000);
+          try {
+            const pub = window.pool.publish(writableRelays, event);
+            pub.on('ok', () => { if (!settled) { settled = true; clearTimeout(timeout); resolve(true); } });
+            pub.on('seen', () => { if (!settled) { settled = true; clearTimeout(timeout); resolve(true); } });
+            pub.on('failed', () => { /* wait for other relays */ });
+          } catch (e) {
+            clearTimeout(timeout);
+            reject(e);
+          }
+        });
 
         // Update local group data
         const updatedGroup = {
@@ -463,15 +611,163 @@ document.addEventListener('DOMContentLoaded', () => {
     isGroupLeft(groupId) {
       return this.leftGroups.has(groupId);
     }
+
+    async leaveGroup(groupId) {
+      console.log('🚪 Leaving group:', groupId);
+      
+      const currentUser = await auth.getCurrentUser();
+      if (!currentUser?.pubkey) {
+        throw new Error('User not authenticated');
+      }
+
+      const group = this.groups.get(groupId);
+      if (!group) {
+        throw new Error('Group not found');
+      }
+
+      try {
+        // For NIP-07, ensure we have permissions
+        if (currentUser.type === 'NIP-07') {
+          await window.nostr.enable();
+        }
+
+        const metadata = {
+          action: 'leave',
+          updated_at: Math.floor(Date.now() / 1000)
+        };
+
+        console.log('📝 Creating leave event with metadata:', metadata);
+
+        const event = {
+          kind: 41, // Group metadata kind - MUST be 41 for updates/leaves
+          pubkey: currentUser.pubkey,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [
+            ['e', groupId], // Reference to the group being left
+            ['p', currentUser.pubkey], // User leaving
+            ['client', 'tides']
+          ],
+          content: JSON.stringify(metadata)
+        };
+
+        event.id = NostrTools.getEventHash(event);
+        
+        if (currentUser.type === 'NIP-07') {
+          const signed = await window.nostr.signEvent(event);
+          event.id = signed.id;
+          event.sig = signed.sig;
+          event.pubkey = signed.pubkey;
+        } else {
+          event.id = NostrTools.getEventHash(event);
+          event.sig = NostrTools.getSignature(event, currentUser.privkey);
+        }
+
+        console.log('📡 Publishing leave event:', event);
+
+        // Use the main shared pool instead of the group-specific pool
+        // This ensures the event can be published without being filtered
+        const relays = relayPool.getConnectedRelays();
+        const writableRelays = relays.filter(url => !/nostr\.wine|nostr\.band|primal|nostr\.watch|relay\.nostr\.net|inbox\.azzamo\.net/i.test(url));
+        console.log('📡 Publishing to relays:', writableRelays);
+        
+        console.log('⏳ Waiting for leave event publish to complete...');
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const timeout = setTimeout(() => {
+            if (!settled) reject(new Error('Publish timeout'));
+          }, 10000);
+          try {
+            const pub = window.pool.publish(writableRelays, event);
+            pub.on('ok', () => { if (!settled) { settled = true; clearTimeout(timeout); resolve(true); } });
+            pub.on('seen', () => { if (!settled) { settled = true; clearTimeout(timeout); resolve(true); } });
+            pub.on('failed', () => { /* ignore, wait for others or timeout */ });
+          } catch (e) {
+            clearTimeout(timeout);
+            reject(e);
+          }
+        });
+
+        console.log('✅ Leave event published successfully');
+
+        // Mark group as left locally
+        this.leftGroups.add(groupId);
+        console.log('🚫 Group marked as left locally:', groupId);
+        
+        // Remove from active groups
+        this.groups.delete(groupId);
+        console.log('🗑️ Group removed from active groups');
+        
+        // UI update will be handled by popup.js when it detects the group leave
+        
+        console.log('🎉 Group leave completed successfully');
+        return true;
+      } catch (error) {
+        console.error('❌ Error leaving group:', error);
+        throw error;
+      }
+    }
   }
 
   // Create a single instance
   const groupContactManager = new GroupContactManager();
-
+  
   // Make everything available on window
   window.groupContactManager = groupContactManager;
+  
+  // CRITICAL: Force the correct createGroup method and prevent overrides
+  const originalCreateGroup = groupContactManager.createGroup;
+  
+  // First, verify this is the right method
+  if (!originalCreateGroup.toString().includes('🎯 createGroup called with:')) {
+    console.error('❌ CRITICAL: Wrong createGroup method found during binding!');
+    throw new Error('Wrong createGroup method found during binding!');
+  }
+  
+  // CRITICAL: Override the PROTOTYPE method to prevent it from being used
+  const prototype = Object.getPrototypeOf(groupContactManager);
+  Object.defineProperty(prototype, 'createGroup', {
+    value: originalCreateGroup,
+    writable: false,
+    configurable: false
+  });
+  
+  // Force bind the correct method to the instance
+  const boundCreateGroup = originalCreateGroup.bind(groupContactManager);
+  
+  // Replace the instance method with our bound version
+  groupContactManager.createGroup = boundCreateGroup;
+  
+  // Now protect the instance method from being overridden
+  Object.defineProperty(groupContactManager, 'createGroup', {
+    value: boundCreateGroup,
+    writable: false,
+    configurable: false
+  });
+  
+  // Also protect the window object version
+  Object.defineProperty(window.groupContactManager, 'createGroup', {
+    value: boundCreateGroup,
+    writable: false,
+    configurable: false
+  });
+  
+  // CRITICAL: Add a final protection that runs AFTER everything else
+  setTimeout(() => {
+    // Check if our method was overridden
+    const currentMethod = window.groupContactManager.createGroup;
+    if (!currentMethod.toString().includes('🎯 createGroup called with:')) {
+      console.error('❌ CRITICAL: Method was overridden after protection! Forcing again...');
+      window.groupContactManager.createGroup = boundCreateGroup;
+      Object.defineProperty(window.groupContactManager, 'createGroup', {
+        value: boundCreateGroup,
+        writable: false,
+        configurable: false
+      });
+    }
+  }, 100);
+  
   window.fetchUserGroups = groupContactManager.fetchUserGroups.bind(groupContactManager);
-  window.createGroup = groupContactManager.createGroup.bind(groupContactManager);
   window.updateGroupMetadata = groupContactManager.updateGroupMetadata.bind(groupContactManager);
+  window.leaveGroup = groupContactManager.leaveGroup.bind(groupContactManager);
   window.getGroups = () => Array.from(groupContactManager.groups.values());
-});
+}
