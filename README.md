@@ -4,11 +4,11 @@ A zap and NWC enabled Nostr messenger
 Browser extension for Chromium-based browsers like Brave (recommended), Chrome, or Edge.
 
 <img src="https://github.com/user-attachments/assets/da4e469a-4cbf-4935-a4fe-deb211a98c3b"
-width="350" alt="Bildschirmfoto">
+width="320" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/f83a865e-7aee-470d-bad1-e5e765004e3d"
-width="350" alt="Bildschirmfoto">
+width="320" alt="Bildschirmfoto">
 <img src="https://github.com/user-attachments/assets/56d344f0-0f4a-45ec-9d6a-e5af635ef456"
-width="350" alt="Bildschirmfoto">
+width="320" alt="Bildschirmfoto">
 
 <img src="https://github.com/user-attachments/assets/12ee9443-ab42-4c9f-9d3d-7e4ff6fcd112"
 height="250" alt="NWC">
