@@ -6,7 +6,10 @@
   "permissions": [
     "storage",
     "notifications",
-    "webRequest"
+    "webRequest",
+    "scripting",
+    "activeTab",
+    "tabs"
   ],
   "host_permissions": [
     "*://*/*",
