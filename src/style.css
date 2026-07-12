@@ -465,7 +465,6 @@ body {
   border-color: var(--indicator-color);
 }
 
-#extensionLoginButton,
 #loginButton {
   width: 300px;
   height: 40px;
@@ -480,15 +479,8 @@ body {
   transition: background-color 0.3s;
 }
 
-#extensionLoginButton:hover,
 #loginButton:hover {
   background-color: var(--hover-color);
-}
-
-.login-separator {
-  margin: 16px 0;
-  color: var(--text-color);
-  font-size: 14px;
 }
 
 #searchInput::placeholder,

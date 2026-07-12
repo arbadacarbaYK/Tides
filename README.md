@@ -22,7 +22,7 @@ height="250" alt="NWC">
 - **Media Support**: Images, GIFs, videos (MP4, WebM, MOV, AVI, MKV), file uploads to Blossom
 - **Rich Previews**: Nostr notes/profiles, YouTube, Twitter/X, Twitch, Amazon, media links
 - **Multiple Relays**: Automatic fallback and retry logic
-- **Login Options**: NIP-07 extensions (Alby, nos2x) or manual nsec
+- **Login**: nsec login with AES-GCM encrypted local key storage (NIP-46 remote signing planned)
 - **Contact Management**: Follow/unfollow with network-wide sync, NIP-51 mute lists
 - **Search & Navigation**: Find contacts, groups, messages with context menus
 - **Modern UI**: Dark mode, emoji picker, GIF search, QR codes
@@ -114,7 +114,7 @@ Tides supports zapping via Nostr Wallet Connect (NIP‑47):
 
 ### Key Development Areas
 
-- **Authentication**: NIP-07/nsec login, secure storage, key validation
+- **Authentication**: nsec login, AES-GCM encrypted local storage, key validation (NIP-46 remote signing planned)
 - **Relays**: Connection pooling, fallbacks, retry logic, health monitoring
 - **Messages**: NIP-04/44 encryption, signatures, media support, group handling
 - **Contacts**: Follow lists (NIP-02/03), mute lists (NIP-51), network sync

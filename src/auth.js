@@ -21,9 +21,10 @@ class Auth {
     try {
       let user;
       
-      if (method === 'NIP-07') {
-        user = await this.loginWithNIP07();
-      } else if (method === 'NSEC') {
+      // NIP-07 extension login was removed: signer extensions never inject
+      // window.nostr into another extension's popup. NIP-46 remote signing is
+      // the planned replacement.
+      if (method === 'NSEC') {
         user = await this.loginWithNSEC(credentials);
       } else {
         throw new Error('Invalid login method');
@@ -37,50 +38,6 @@ class Auth {
       return user;
     } catch (error) {
       console.error('Login failed:', error);
-      throw error;
-    }
-  }
-
-  async loginWithNIP07() {
-    if (!window.nostr) {
-      throw new Error('NIP-07 extension not found');
-    }
-
-    try {
-      // Test if we can actually get permissions
-      await window.nostr.enable();
-      
-      // Get public key
-      const pubkey = await window.nostr.getPublicKey();
-      
-      // Verify we can sign (this confirms the extension is working)
-      const testEvent = {
-        kind: 1,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [],
-        content: 'test'
-      };
-      
-      try {
-        await window.nostr.signEvent(testEvent);
-      } catch (e) {
-        throw new Error('Nostr extension cannot sign events. Please check its permissions.');
-      }
-
-      const npub = nostrCore.nip19.npubEncode(pubkey);
-      
-      const credentials = {
-        type: 'NIP-07',
-        pubkey: pubkey.toLowerCase(),
-        npub,
-        displayId: shortenIdentifier(npub)
-      };
-
-      await this.storeCredentials(credentials);
-      
-      return credentials;
-    } catch (error) {
-      console.error('NIP-07 login failed:', error);
       throw error;
     }
   }
@@ -159,9 +116,7 @@ class Auth {
     const user = await this.getCurrentUser();
     if (!user) return null;
 
-    if (user.type === 'NIP-07') {
-      return window.nostr;
-    } else if (user.type === 'NSEC' && user.privkey) {
+    if (user.type === 'NSEC' && user.privkey) {
       return user.privkey;
     }
     return null;
@@ -175,17 +130,14 @@ export { auth };
 /**
  * @class Auth
  * @description Authentication manager for Nostr login handling
- * Supports both NIP-07 (browser extension) and NSEC (private key) login methods
- * Manages user credentials storage and retrieval
+ * Supports NSEC (private key) login; keys are stored AES-GCM encrypted via
+ * credentialManager. NIP-46 remote signing is planned as a second method.
  * 
  * Key features:
  * - Secure credential storage
- * - Multiple login methods
  * - User metadata initialization
  * - Private key management
  * 
  * @example
- * const user = await auth.login('NIP-07');
- * // or
  * const user = await auth.login('NSEC', nsecString);
  */

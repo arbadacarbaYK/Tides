@@ -305,21 +305,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   const storedUser = await auth.getStoredCredentials();
   if (storedUser) {
-    await handleSuccessfulLogin(storedUser); 
-    return;
-  }
-
-  if (window.nostr) {
-    try {
-      const user = await auth.login('NIP-07');
-      if (user) {
-        await handleSuccessfulLogin(user);
-        return;
-      }
-    } catch (e) {
-      if (window.nostr) {
-        showErrorMessage('NIP-07 login failed');
-      }
+    if (storedUser.type === 'NIP-07') {
+      // Legacy NIP-07 sessions can no longer sign (page-extension bridge was
+      // removed for store compliance) — clear them and ask for nsec login.
+      await chrome.storage.local.remove('currentUser');
+      showErrorMessage('Extension login is no longer supported. Please log in with your nsec.');
+    } else {
+      await handleSuccessfulLogin(storedUser);
+      return;
     }
   }
 
@@ -1986,32 +1979,6 @@ async function initializeStreamSection() {
   contactManager.channels.set(channel.id, channel);
   return channel;
 }
-
-document.getElementById('extensionLoginButton').addEventListener('click', async () => {
-  try {
-    // Check if window.nostr exists after a short delay to allow extension injection
-    setTimeout(async () => {
-      if (typeof window.nostr === 'undefined') {
-        showErrorMessage('No Nostr extension found. Please install Alby or nos2x.');
-        return;
-      }
-      
-      try {
-        await window.nostr.enable();
-        const user = await auth.login('NIP-07');
-        if (user) {
-          await handleSuccessfulLogin(user);
-        }
-      } catch (error) {
-        console.error('Extension login error:', error);
-        showErrorMessage('Extension login failed: ' + error.message);
-      }
-    }, 500);
-  } catch (error) {
-    console.error('Extension login error:', error);
-    showErrorMessage('Extension login failed: ' + error.message);
-  }
-});
 
 async function loadLinkPreviews() {
   const links = document.querySelectorAll('.message-text a');

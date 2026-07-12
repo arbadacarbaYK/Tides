@@ -35,7 +35,11 @@ function createConfig(input, output, name) {
           { src: 'src/sounds/*', dest: 'dist/sounds' },
           { src: 'src/services/*', dest: 'dist/services' },
           { src: 'src/icons/Logo.png', dest: 'dist/icons' },
+          { src: 'src/icons/icon16.png', dest: 'dist/icons' },
+          { src: 'src/icons/icon48.png', dest: 'dist/icons' },
+          { src: 'src/icons/icon128.png', dest: 'dist/icons' },
           { src: 'src/icons/default-avatar.png', dest: 'dist/icons' },
+          { src: 'src/icons/default-group.png', dest: 'dist/icons' },
           { 
             src: 'node_modules/nostr-tools/lib/nostr.bundle.js',
             dest: 'dist/lib',

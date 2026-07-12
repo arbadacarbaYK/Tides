@@ -58,7 +58,7 @@ npm run prebuild       # Create dist directory structure
 ### File Structure
 ```
 src/
-├── auth.js            # NIP-07 and NSEC authentication
+├── auth.js            # NSEC authentication (encrypted local key storage)
 ├── background.js      # Service worker, NWC, LNURL, zap processing
 ├── contact.js         # Contact management, follow lists, mute lists
 ├── messages.js        # DM handling, encryption (NIP-04/44)
@@ -78,7 +78,7 @@ src/
 - ✅ **NIP-02**: Follow List (contact management)
 - ✅ **NIP-03**: Follow List metadata
 - ✅ **NIP-04**: Encrypted Direct Messages
-- ✅ **NIP-07**: Browser Extension authentication
+- ❌ **NIP-07**: Removed in 1.3.0 — signer extensions cannot inject `window.nostr` into another extension's popup; NIP-46 remote signing is planned instead
 - ✅ **NIP-19**: bech32-encoded entities
 
 ### Advanced Features
@@ -125,7 +125,7 @@ export const RELAYS = [
 
 ### Manual Testing Checklist
 - [ ] Extension loads without errors
-- [ ] Authentication works (both NIP-07 and NSEC)
+- [ ] Authentication works (NSEC login)
 - [ ] Send/receive DMs
 - [ ] Follow/unfollow contacts (check network sync)
 - [ ] Mute/unmute contacts (check across clients)

@@ -1,3 +1,13 @@
+## 1.3.0
+
+Store-readiness release: permission audit and NIP-07 removal.
+
+- Permissions cut to the minimum: `storage` + `notifications` and a single `https://*/*` host grant (needed only for LNURL zap invoice requests, which can target any lightning-address domain). Removed `webRequest` (was never used), `tabs`, `scripting`, `activeTab`, the `wss://` host entries and the `web_accessible_resources` block.
+- Removed NIP-07 extension login entirely: signer extensions (Alby, nos2x) never inject `window.nostr` into another extension's popup, and the `chrome.scripting` bridge into the active tab was both unreliable and a store-review red flag. Login is nsec-only; NIP-46 remote signing is the planned replacement. Stored NIP-07 sessions are cleared on next open with a clear message.
+- Proper 16/48/128 px icons generated from the logo (manifest previously pointed all sizes at one 555 px PNG).
+- Added `PRIVACY.md` (required for store listing) and `docs/STORE_LISTING.md` with copy-paste store texts and permission justifications.
+- Aligned the root dev `manifest.json` with the shipped `src/manifest.json` (they had drifted apart).
+
 ## 1.2.1
 
 - Strip boilerplate captions like "Less secure DM with Gif/Image" from display only

@@ -124,70 +124,11 @@ window.nostrCore = nostrCore;
 // Ensure global access to the shared SimplePool for modules using window.pool
 window.pool = pool;
 
-// NIP-07 proxy shim for extension popup: bridge to page context (e.g., Alby)
-// Some providers (like Alby) do not inject window.nostr into extension pages.
-// This shim mirrors the NIP-07 API and executes calls in the active tab.
-if (typeof window.nostr === 'undefined' && typeof chrome !== 'undefined' && chrome.scripting && chrome.tabs) {
-  const executeInActiveTab = async (fn, args = []) => {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const activeTab = tabs && tabs[0];
-    if (!activeTab || !activeTab.id) {
-      throw new Error('No active tab available for NIP-07 provider');
-    }
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: activeTab.id },
-      func: (userFnString, userArgs) => {
-        const userFn = new Function(`return (${userFnString});`)();
-        return userFn(...(userArgs || []));
-      },
-      args: [fn.toString(), args]
-    });
-    if (result && result.__nostr_error) {
-      throw new Error(result.__nostr_error);
-    }
-    return result;
-  };
-
-  const callNostr = async (method, ...args) => {
-    return executeInActiveTab((m, a) => {
-      try {
-        if (!window.nostr) return { __nostr_error: 'NIP-07 provider not found in page' };
-        const target = m.split('.').reduce((obj, key) => (obj ? obj[key] : undefined), window.nostr);
-        if (typeof target !== 'function') return { __nostr_error: `Method not available: ${m}` };
-        return Promise.resolve(target.apply(window.nostr, a));
-      } catch (e) {
-        return { __nostr_error: e && e.message ? e.message : String(e) };
-      }
-    }, [method, args]);
-  };
-
-  window.nostr = {
-    enable: async () => {
-      // Some providers do not require enable; try if available
-      try { return await callNostr('enable'); } catch { return true; }
-    },
-    getPublicKey: async () => {
-      return await callNostr('getPublicKey');
-    },
-    signEvent: async (event) => {
-      return await callNostr('signEvent', event);
-    },
-    // Namespaced methods (nip04/nip44)
-    nip04: {
-      encrypt: async (pubkey, content) => {
-        return await callNostr('nip04.encrypt', pubkey, content);
-      },
-      decrypt: async (pubkey, content) => {
-        return await callNostr('nip04.decrypt', pubkey, content);
-      }
-    },
-    nip44: {
-      decrypt: async (pubkey, content) => {
-        return await callNostr('nip44.decrypt', pubkey, content);
-      }
-    }
-  };
-}
+// NIP-07 note: browser signer extensions (Alby, nos2x) inject window.nostr into
+// regular web pages only — never into another extension's popup. Bridging via
+// chrome.scripting into the active tab requires invasive permissions and gets
+// flagged by store review, so Tides uses nsec login (NIP-46 remote signing is
+// planned as the successor).
 
 /**
  * @file shared.js
