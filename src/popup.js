@@ -2781,16 +2781,9 @@ async function unfollowContact(pubkey) {
       // Sign and publish the updated follow list
       let signedEvent;
       if (currentUser.type === 'NSEC' && currentUser.privkey) {
-        // Use stored private key for NSEC login
         followEvent.id = nostrCore.getEventHash(followEvent);
         followEvent.sig = nostrCore.getSignature(followEvent, currentUser.privkey);
         signedEvent = followEvent;
-      } else if (currentUser.type === 'NIP-07') {
-        // Use NIP-07 extension for signing
-        if (!window.nostr) {
-          throw new Error('NIP-07 extension not available');
-        }
-        signedEvent = await window.nostr.signEvent(followEvent);
       } else {
         throw new Error('No valid signing method available');
       }
@@ -2845,11 +2838,6 @@ async function unfollowContact(pubkey) {
         muteEvent.id = nostrCore.getEventHash(muteEvent);
         muteEvent.sig = nostrCore.getSignature(muteEvent, currentUser.privkey);
         signedMuteEvent = muteEvent;
-      } else if (currentUser.type === 'NIP-07') {
-        if (!window.nostr) {
-          throw new Error('NIP-07 extension not available');
-        }
-        signedMuteEvent = await window.nostr.signEvent(muteEvent);
       } else {
         throw new Error('No valid signing method available');
       }
@@ -4003,7 +3991,7 @@ async function saveUnfollowedContacts() {
  * - UI state management
  * 
  * UI Components:
- * - Login screen with NIP-07/NSEC support
+ * - Login screen with NSEC support (encrypted local key storage)
  * - Contact list with search
  * - Chat interface with emoji/GIF support
  * - Message preview system

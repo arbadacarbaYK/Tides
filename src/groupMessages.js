@@ -367,11 +367,6 @@ document.addEventListener('DOMContentLoaded', () => {
         await relayPool.ensureConnection();
         const connectedRelays = relayPool.getConnectedRelays();
 
-        // For NIP-07, ensure we have permissions
-        if (currentUser.type === 'NIP-07') {
-          await window.nostr.enable();
-        }
-
         const event = {
           kind: 42,
           pubkey: currentUser.pubkey,
@@ -385,11 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Use NostrTools for event hash and signing
         event.id = NostrTools.getEventHash(event);
-        if (currentUser.type === 'NIP-07') {
-          event.sig = await window.nostr.signEvent(event);
-        } else {
-          event.sig = NostrTools.getSignature(event, currentUser.privkey);
-        }
+        event.sig = NostrTools.getSignature(event, currentUser.privkey);
 
         // Publish directly to each relay to bypass any subscription filters
         const publishPromises = connectedRelays.map(relay => {

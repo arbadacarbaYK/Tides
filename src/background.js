@@ -134,9 +134,7 @@ var Background = (function(NostrTools) {
     async login(method, key) {
       try {
         let credentials;
-        if (method === 'NIP-07') {
-          credentials = await this.loginWithNIP07();
-        } else if (method === 'NSEC') {
+        if (method === 'NSEC') {
           credentials = await this.loginWithNSEC(key);
         } else {
           throw new Error('Invalid login method');
@@ -149,46 +147,6 @@ var Background = (function(NostrTools) {
         return credentials;
       } catch (error) {
         console.error('Login failed:', error);
-        throw error;
-      }
-    }
-
-    async loginWithNIP07() {
-      try {
-        // Check if NIP-07 extension exists in extension context
-        if (typeof window?.nostr === 'undefined') {
-          throw new Error('No Nostr extension found. Please install Alby or nos2x.');
-        }
-
-        // Test if we can actually get permissions
-        await window.nostr.enable();
-        
-        // Get public key
-        const pubkey = await window.nostr.getPublicKey();
-        
-        // Verify we can sign (this confirms the extension is working)
-        const testEvent = {
-          kind: 1,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: [],
-          content: 'test'
-        };
-        
-        try {
-          await window.nostr.signEvent(testEvent);
-        } catch (e) {
-          throw new Error('Nostr extension cannot sign events. Please check its permissions.');
-        }
-
-        const npub = nostrCore.nip19.npubEncode(pubkey);
-        return {
-          type: 'NIP-07',
-          pubkey: pubkey.toLowerCase(),
-          npub,
-          displayId: npub.slice(0, 8) + '...' + npub.slice(-4)
-        };
-      } catch (error) {
-        console.error('NIP-07 login failed:', error);
         throw error;
       }
     }
@@ -888,24 +846,10 @@ var Background = (function(NostrTools) {
         }
         
         if (currentUser.type === 'NSEC' && currentUser.privkey) {
-          // Sign with private key if available
           zapReceipt.sig = await nostrCore.getSignature(zapReceipt, currentUser.privkey);
-        } else if (currentUser.type === 'NIP-07') {
-          // For NIP-07, we need to use the extension to sign
-          try {
-            if (typeof window?.nostr !== 'undefined') {
-              zapReceipt.sig = await window.nostr.signEvent(zapReceipt);
-            } else {
-              console.warn('NIP-07 extension not available in background context');
-              return { success: false, error: 'NIP-07 extension not available' };
-            }
-          } catch (signError) {
-            console.error('Failed to sign with NIP-07 extension:', signError);
-            return { success: false, error: 'Failed to sign zap receipt' };
-          }
         } else {
-          console.warn('Unknown user type, cannot sign zap receipt');
-          return { success: false, error: 'Unknown user authentication type' };
+          console.warn('No private key available, cannot sign zap receipt');
+          return { success: false, error: 'No private key available to sign zap receipt' };
         }
         
         // Send to all relays from the zap request (NOT the NWC relay!)

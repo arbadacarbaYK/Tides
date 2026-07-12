@@ -403,15 +403,6 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
         }
         
         console.log('✅ User authenticated:', currentUser.pubkey);
-        console.log('✅ User type:', currentUser.type);
-        console.log('✅ User pubkey:', currentUser.pubkey);
-
-        // For NIP-07, ensure we have permissions
-        if (currentUser.type === 'NIP-07') {
-          console.log('🔐 NIP-07 user, checking permissions...');
-          await window.nostr.enable();
-          console.log('✅ NIP-07 permissions granted');
-        }
 
         const metadata = {
           name,
@@ -433,21 +424,9 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
           content: JSON.stringify(metadata)
         };
 
-        // Preparing to sign group creation event
-
-        if (currentUser.type === 'NIP-07') {
-          // Signing with NIP-07...
-          const signed = await window.nostr.signEvent(event);
-          event.id = signed.id;
-          event.sig = signed.sig;
-          event.pubkey = signed.pubkey;
-          // Event signed with NIP-07
-        } else {
-          // Signing with private key...
-          event.id = NostrTools.getEventHash(event);
-          event.sig = NostrTools.getSignature(event, currentUser.privkey);
-          // Event signed with private key
-        }
+        // Sign group creation event with the stored private key
+        event.id = NostrTools.getEventHash(event);
+        event.sig = NostrTools.getSignature(event, currentUser.privkey);
 
         // Publishing group creation event
 
@@ -556,15 +535,8 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
           content: JSON.stringify(metadata)
         };
 
-        if (currentUser.type === 'NIP-07') {
-          const signed = await window.nostr.signEvent(event);
-          event.id = signed.id;
-          event.sig = signed.sig;
-          event.pubkey = signed.pubkey;
-        } else {
-          event.id = nostrCore.getEventHash(event);
-          event.sig = nostrCore.getSignature(event, currentUser.privkey);
-        }
+        event.id = nostrCore.getEventHash(event);
+        event.sig = nostrCore.getSignature(event, currentUser.privkey);
 
         const relays = relayPool.getConnectedRelays();
         const writableRelays = relays.filter(url => !/nostr\.wine|nostr\.band|primal|nostr\.watch|relay\.nostr\.net|inbox\.azzamo\.net/i.test(url));
@@ -624,11 +596,6 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
       }
 
       try {
-        // For NIP-07, ensure we have permissions
-        if (currentUser.type === 'NIP-07') {
-          await window.nostr.enable();
-        }
-
         const metadata = {
           action: 'leave',
           updated_at: Math.floor(Date.now() / 1000)
@@ -649,16 +616,7 @@ if (!window.RELAYS || !window.nostrCore || !window.relayPool) {
         };
 
         event.id = NostrTools.getEventHash(event);
-        
-        if (currentUser.type === 'NIP-07') {
-          const signed = await window.nostr.signEvent(event);
-          event.id = signed.id;
-          event.sig = signed.sig;
-          event.pubkey = signed.pubkey;
-        } else {
-          event.id = NostrTools.getEventHash(event);
-          event.sig = NostrTools.getSignature(event, currentUser.privkey);
-        }
+        event.sig = NostrTools.getSignature(event, currentUser.privkey);
 
         console.log('📡 Publishing leave event:', event);
 

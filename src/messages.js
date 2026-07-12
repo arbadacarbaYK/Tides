@@ -103,11 +103,7 @@ export class MessageManager {
         tags: [['p', pubkey], ['client', 'tides']]
       };
       event14.id = NostrTools.getEventHash(event14);
-      if (currentUser.type === 'NIP-07') {
-        event14.sig = await window.nostr.signEvent(event14);
-      } else {
-        event14.sig = NostrTools.getSignature(event14, currentUser.privkey);
-      }
+      event14.sig = NostrTools.getSignature(event14, currentUser.privkey);
       await this.publishToAnyRelay(relays, event14);
       return event14;
     };
@@ -115,11 +111,7 @@ export class MessageManager {
     const sendKind4 = async () => {
       let encryptedContent;
       try {
-        if (currentUser.type === 'NIP-07') {
-          encryptedContent = await window.nostr.nip04.encrypt(pubkey, message);
-        } else {
-          encryptedContent = await NostrTools.nip04.encrypt(currentUser.privkey, pubkey, message);
-        }
+        encryptedContent = await NostrTools.nip04.encrypt(currentUser.privkey, pubkey, message);
       } catch (error) {
         throw new Error('Failed to encrypt message');
       }
@@ -131,11 +123,7 @@ export class MessageManager {
         tags: [['p', pubkey], ['client', 'tides']]
       };
       event4.id = NostrTools.getEventHash(event4);
-      if (currentUser.type === 'NIP-07') {
-        event4.sig = await window.nostr.signEvent(event4);
-      } else {
-        event4.sig = NostrTools.getSignature(event4, currentUser.privkey);
-      }
+      event4.sig = NostrTools.getSignature(event4, currentUser.privkey);
       await this.publishToAnyRelay(relays, event4);
       return event4;
     };
@@ -450,9 +438,7 @@ export class MessageManager {
           // content is a nip44-encrypted JSON Seal (kind 13) addressed via 'p' tag
           // Try decrypt with NIP-44 first (sender unknown yet)
           let unwrappedSealJson = null;
-          if (currentUser?.type === 'NIP-07' && window.nostr?.nip44?.decrypt) {
-            unwrappedSealJson = await window.nostr.nip44.decrypt(event.pubkey, event.content);
-          } else if (nostrCore.nip44?.decrypt && privateKey) {
+          if (nostrCore.nip44?.decrypt && privateKey) {
             unwrappedSealJson = await nostrCore.nip44.decrypt(privateKey, event.pubkey, event.content);
           }
           if (unwrappedSealJson) {
@@ -460,9 +446,6 @@ export class MessageManager {
               const seal = JSON.parse(unwrappedSealJson);
               if (seal && seal.kind === 13 && typeof seal.content === 'string') {
                 // The inner content is the encrypted unsigned kind 14 message; decrypt it using NIP-44
-                if (currentUser?.type === 'NIP-07' && window.nostr?.nip44?.decrypt) {
-                  return await window.nostr.nip44.decrypt(event.pubkey, seal.content);
-                }
                 if (nostrCore.nip44?.decrypt && privateKey) {
                   return await nostrCore.nip44.decrypt(privateKey, event.pubkey, seal.content);
                 }
@@ -477,9 +460,6 @@ export class MessageManager {
       if (event.kind === 14) {
         // Try NIP-44 decrypt first; if it fails, treat as plaintext
         try {
-          if (currentUser.type === 'NIP-07' && window.nostr?.nip44?.decrypt) {
-            return await window.nostr.nip44.decrypt(event.pubkey, event.content);
-          }
           if (nostrCore.nip44?.decrypt) {
             return await nostrCore.nip44.decrypt(privateKey, event.pubkey, event.content);
           }
@@ -505,17 +485,10 @@ export class MessageManager {
 
       // First try standard NIP-04 decryption
       try {
-        if (currentUser.type === 'NIP-07') {
-          return await window.nostr.nip04.decrypt(counterpartPubkey, event.content);
-        } else {
-          return await NostrTools.nip04.decrypt(privateKey, counterpartPubkey, event.content);
-        }
+        return await NostrTools.nip04.decrypt(privateKey, counterpartPubkey, event.content);
       } catch (_) {
         // If NIP-04 fails, try NIP-44 versioned encryption as a fallback
         try {
-          if (currentUser.type === 'NIP-07' && window.nostr?.nip44?.decrypt) {
-            return await window.nostr.nip44.decrypt(counterpartPubkey, event.content);
-          }
           if (nostrCore.nip44?.decrypt) {
             return await nostrCore.nip44.decrypt(privateKey, counterpartPubkey, event.content);
           }
